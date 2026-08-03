@@ -159,36 +159,96 @@ def _build_demo_workbook(path: Path) -> None:
 
     months = ["gmv_sep", "gmv_oct", "gmv_nov", "gmv_dec", "gmv_jan", "gmv_feb"]
 
-    def make_rows(n, id_start, tenure_low_share=0.1, gmv_sep_zero_share=0.1):
+    # Kept in sync by hand with segmentation.py's BROKER_RELIANCE_THRESHOLD
+    # (can't import it directly: segmentation.py imports from this module).
+    DEMO_BROKER_RELIANCE_SPLIT = 30
+
+    def make_rows(n, id_start, tenure_low_share=0.30, gmv_sep_zero_share=0.20):
         ids = [f"ACC-{i:03d}" for i in range(id_start, id_start + n)]
-        tenure = rng.integers(1, 48, size=n).astype(float)
+
+        # tenure_months / gmv_sep: drawn so ~half the book ends up with no
+        # trend baseline (tenure < 6 months, or a zero September GMV to
+        # divide by), matching the real ~50% blank rate in gmv_trend_pct.
+        tenure = rng.integers(6, 48, size=n).astype(float)
         low_tenure_idx = rng.choice(n, size=int(n * tenure_low_share), replace=False)
-        tenure[low_tenure_idx] = rng.integers(1, 5, size=len(low_tenure_idx))
+        tenure[low_tenure_idx] = rng.integers(1, 6, size=len(low_tenure_idx))
 
         gmv_sep = rng.uniform(500, 20000, size=n)
-        zero_sep_idx = rng.choice(
-            [i for i in range(n) if i not in low_tenure_idx],
-            size=int(n * gmv_sep_zero_share),
-            replace=False,
-        )
+        remaining_idx = [i for i in range(n) if i not in set(low_tenure_idx)]
+        zero_sep_idx = rng.choice(remaining_idx, size=int(n * gmv_sep_zero_share), replace=False)
         gmv_sep[zero_sep_idx] = 0.0
 
         no_baseline_idx = set(low_tenure_idx) | set(zero_sep_idx)
-        trend = rng.uniform(-0.3, 0.3, size=n)
-        for i in no_baseline_idx:
-            trend[i] = np.nan
+
+        # gmv_trend_pct: 0-100 scale (matches segmentation.py's thresholds,
+        # not the 0-1 fraction this used to be). Mirrors the real skew: ~77%
+        # of trended accounts already flat at -100%, a smaller share genuinely
+        # declining (-25 to -100), the rest holding steady or growing.
+        # Accounts with no baseline stay null.
+        trend = np.full(n, np.nan)
+        for i in range(n):
+            if i in no_baseline_idx:
+                continue
+            r = rng.random()
+            if r < 0.77:
+                trend[i] = -100.0
+            elif r < 0.84:
+                trend[i] = rng.uniform(-99, -25)
+            else:
+                trend[i] = rng.uniform(-24, 50)
+
+        # broker_reliance_pct: 0-100 scale. Real data shows a genuine
+        # two-cluster split with a gap between 20-40%, not a smooth spread.
+        broker_reliance_pct = np.where(
+            rng.random(n) < 0.35,
+            rng.uniform(40, 90, size=n),
+            rng.uniform(0, 20, size=n),
+        ).round(1)
+
+        # app_active_days_6m: high broker reliance tracks near-zero in-app
+        # activity, per DECISIONS.md.
+        app_active_days_6m = np.where(
+            broker_reliance_pct > DEMO_BROKER_RELIANCE_SPLIT,
+            rng.integers(0, 10, size=n),
+            rng.integers(10, 180, size=n),
+        )
+
+        # gmv_total_6m: a minority of accounts are low-spend "headroom"
+        # candidates (well under the $266 threshold); the rest spend normally.
+        gmv_total_6m = np.where(
+            rng.random(n) < 0.2,
+            rng.uniform(10, 266, size=n),
+            rng.uniform(266, 120000, size=n),
+        ).round(2)
+
+        pdp_views_6m = rng.integers(0, 3000, size=n)
+
+        # make_an_offer_6m / chat_threads / video_call_requests: zero-use is
+        # common rather than a rare edge case, so the nudge segments that key
+        # off "never used this feature" actually get populated.
+        make_an_offer_6m = np.where(rng.random(n) < 0.4, 0, rng.integers(1, 15, size=n))
+        chat_threads = np.where(rng.random(n) < 0.5, 0, rng.integers(1, 10, size=n))
+        video_call_requests = np.where(rng.random(n) < 0.6, 0, rng.integers(1, 5, size=n))
+
+        # bundle_gmv_share_pct: 90% of self-serve accounts sit at exactly
+        # 100% bundle share in the real data; the rest fall somewhere below.
+        bundle_gmv_share_pct = np.where(
+            rng.random(n) < 0.9,
+            100.0,
+            rng.uniform(0, 99, size=n),
+        ).round(1)
 
         data = {
             "account_id": ids,
             "ownership": rng.choice(["Account Managed", "Self Serve"], size=n),
-            "broker_reliance_pct": rng.uniform(0, 1, size=n).round(3),
-            "app_active_days_6m": rng.integers(0, 180, size=n),
-            "pdp_views_6m": rng.integers(0, 5000, size=n),
-            "make_an_offer_6m": rng.integers(0, 200, size=n),
-            "chat_threads": rng.integers(0, 100, size=n),
-            "video_call_requests": rng.integers(0, 20, size=n),
-            "bundle_gmv_share_pct": rng.uniform(0, 1, size=n).round(3),
-            "gmv_total_6m": rng.uniform(1000, 120000, size=n).round(2),
+            "broker_reliance_pct": broker_reliance_pct,
+            "app_active_days_6m": app_active_days_6m,
+            "pdp_views_6m": pdp_views_6m,
+            "make_an_offer_6m": make_an_offer_6m,
+            "chat_threads": chat_threads,
+            "video_call_requests": video_call_requests,
+            "bundle_gmv_share_pct": bundle_gmv_share_pct,
+            "gmv_total_6m": gmv_total_6m,
             "gmv_sep": gmv_sep.round(2),
             "gmv_oct": rng.uniform(500, 20000, size=n).round(2),
             "gmv_nov": rng.uniform(500, 20000, size=n).round(2),
