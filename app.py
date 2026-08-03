@@ -24,10 +24,9 @@ st.set_page_config(page_title="Fleek Retention Dashboard", layout="wide")
 
 
 def _run_and_store(filepath) -> None:
-    result = run_pipeline(filepath, db_path=DEFAULT_DB_PATH)
-    st.session_state.df = result["df"]
-    st.session_state.load_report = result["load_report"]
-    st.session_state.sync_summary = result["sync_summary"]
+    df, summary = run_pipeline(filepath, db_path=DEFAULT_DB_PATH)
+    st.session_state.df = df
+    st.session_state.summary = summary
 
 
 # ---------------------------------------------------------------------
@@ -76,7 +75,7 @@ if view == "Overview":
     col5.metric("At-risk accounts", f"{int(df['is_at_risk'].sum()):,}")
 
     st.subheader("Since last run")
-    summary = st.session_state.sync_summary
+    summary = st.session_state.summary
     changed = summary["new_count"] + summary["reset_to_pending_count"]
     st.write(f"**{changed} account(s) changed status since your last run.**")
     st.write(
@@ -174,13 +173,13 @@ elif view == "Batch Ingestion":
     batch_file = st.file_uploader("New workbook (.xlsx)", type=["xlsx"], key="batch_uploader")
 
     if batch_file is not None:
-        previous_summary = st.session_state.sync_summary
+        previous_summary = st.session_state.summary
 
         BATCH_UPLOAD_PATH.parent.mkdir(parents=True, exist_ok=True)
         BATCH_UPLOAD_PATH.write_bytes(batch_file.getvalue())
         _run_and_store(BATCH_UPLOAD_PATH)
 
-        new_summary = st.session_state.sync_summary
+        new_summary = st.session_state.summary
 
         st.success(f"Pipeline re-run on {len(st.session_state.df)} accounts.")
 
