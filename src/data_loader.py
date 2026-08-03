@@ -1,8 +1,11 @@
 """Load, clean, and idempotently merge account data for the retention tool.
 
-Run directly to see a demo report:
+Run directly to see a demo report (from the project root):
 
-    python src/data_loader.py [path/to/workbook.xlsx]
+    python -m src.data_loader [path/to/workbook.xlsx]
+
+`python src/data_loader.py [path]` also still works, since this module has
+no imports of its own from elsewhere in `src`.
 
 If no workbook exists at the given (or default demo) path, a synthetic one
 is generated so the pipeline and report can be inspected end to end.

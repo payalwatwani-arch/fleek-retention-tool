@@ -1,9 +1,10 @@
 """Segment cleaned accounts into retention-relevant buckets and assign a
 next-best action, per the thresholds in DECISIONS.md.
 
-Run directly against the demo/data pipeline to see a summary report:
+Run directly against the demo/data pipeline to see a summary report (from
+the project root, so the package-relative imports resolve):
 
-    python src/segmentation.py [path/to/workbook.xlsx]
+    python -m src.segmentation [path/to/workbook.xlsx]
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from data_loader import DEFAULT_DEMO_PATH, load_and_clean, _build_demo_workbook
+from .data_loader import DEFAULT_DEMO_PATH, load_and_clean, _build_demo_workbook
 
 OWNERSHIP_COLUMN = "ownership"
 ACCOUNT_MANAGED = "Account Managed"
