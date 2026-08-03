@@ -47,9 +47,9 @@ def db_path(tmp_path):
 
 
 def test_day1_day2_day3_walkthrough(db_path):
-    # Day 1: new account, broker_reliance_pct = 45 -> Migration play.
+    # Day 1: new account, broker_reliance_pct = 45 -> Self-Serve Nudge.
     day1 = make_df(
-        make_row("ACC-001", "Broker-Reliant", "Migration play", broker_reliance_pct=45)
+        make_row("ACC-001", "Broker-Reliant", "Self-Serve Nudge", broker_reliance_pct=45)
     )
     summary1 = sync_state(day1, db_path=db_path)
     assert summary1 == {"new_count": 1, "reset_to_pending_count": 0, "unchanged_count": 0}
@@ -65,7 +65,7 @@ def test_day1_day2_day3_walkthrough(db_path):
 
     # Day 2: identical input data (broker_reliance_pct still 45).
     day2 = make_df(
-        make_row("ACC-001", "Broker-Reliant", "Migration play", broker_reliance_pct=45)
+        make_row("ACC-001", "Broker-Reliant", "Self-Serve Nudge", broker_reliance_pct=45)
     )
     summary2 = sync_state(day2, db_path=db_path)
     assert summary2 == {"new_count": 0, "reset_to_pending_count": 0, "unchanged_count": 1}
@@ -91,7 +91,7 @@ def test_day1_day2_day3_walkthrough(db_path):
 
 def test_rerunning_identical_data_twice_changes_nothing(db_path):
     df = make_df(
-        make_row("ACC-001", "Broker-Reliant", "Migration play"),
+        make_row("ACC-001", "Broker-Reliant", "Self-Serve Nudge"),
         make_row("ACC-002", "Growth Headroom", "Bundle nudge"),
     )
     sync_state(df, db_path=db_path)
