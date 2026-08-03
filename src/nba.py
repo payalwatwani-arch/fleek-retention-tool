@@ -274,7 +274,7 @@ def _draft_chat_call_nudge(row) -> list[dict[str, str]]:
 
 
 ACTION_TEMPLATES = {
-    "Migration play": _draft_migration_play,
+    "Self-Serve Nudge": _draft_migration_play,
     "Win-back play": _draft_win_back_play,
     "Retention check-in": _draft_retention_checkin,
     "Bundle nudge": _draft_bundle_nudge,

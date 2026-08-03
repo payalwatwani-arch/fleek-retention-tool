@@ -40,7 +40,7 @@ def segment_accounts(df: pd.DataFrame) -> pd.DataFrame:
     # --- Account Managed: two-cluster split, no "Hybrid" middle segment ---
     broker_reliant = is_am & (df["broker_reliance_pct"] > BROKER_RELIANCE_THRESHOLD)
     df.loc[broker_reliant, "segment"] = "Broker-Reliant"
-    df.loc[broker_reliant, "action"] = "Migration play"
+    df.loc[broker_reliant, "action"] = "Self-Serve Nudge"
 
     healthy_am = is_am & ~broker_reliant
     df.loc[healthy_am, "segment"] = "Healthy AM"
