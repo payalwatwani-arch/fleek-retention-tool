@@ -65,3 +65,37 @@ One row (`account_id ACC-005`) had `account_status == "Duplicate"` — a data
 hygiene issue already flagged in Fleek's own source file. Excluded it from the
 pipeline's working output, but logged it separately in the load report rather
 than silently dropping it, so nothing about the exclusion is hidden.
+
+## Referral, feedback, and expansion nudges — considered, not built
+
+Fleek runs a live referral program (confirmed via public forum activity —
+referral codes actively shared and used by resellers). I considered adding
+referral, feedback, and account-expansion nudges alongside the brief's four
+named growth levers (chat, bundles, video calls, build-a-bundle).
+
+Decided against it: the dataset has no columns backing any of these (no
+referral code usage, no feedback log, no expansion-readiness signal), so
+building segmentation logic around them would mean inventing eligibility
+criteria rather than deriving it from real data — breaking the same
+discipline used everywhere else in this build. The brief also names a closed
+set of four levers explicitly, not an open invitation to add more.
+
+If referral/feedback data existed in a future version of this dataset, these
+would be natural additional levers — just not ones I'd fabricate criteria for
+now.
+
+## WhatsApp — static preview only, no real send integration
+
+Fleek's customer base (small resellers, vintage shops) likely relies heavily
+on WhatsApp for informal buyer communication, so the Action Center shows a
+styled WhatsApp-format preview of each drafted message alongside the email
+version, with a "Copy for WhatsApp" button.
+
+Deliberately not built: an actual send integration (e.g. a wa.me link or the
+WhatsApp Business API). The dataset has no phone number or contact field for
+any account — building a real send button would mean either fabricating
+contact info for real, anonymised customers, or leaving it broken. Since this
+is real Fleek customer data, not fictional demo data, I didn't want to
+invent contact details that don't exist. The preview still demonstrates the
+channel-awareness the brief's context implies, without overstepping into
+data the file doesn't contain.
