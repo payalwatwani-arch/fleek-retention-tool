@@ -10,6 +10,9 @@ Run with:
 
 from __future__ import annotations
 
+import html
+import json
+import re
 from pathlib import Path
 
 import streamlit as st
@@ -21,6 +24,66 @@ WORKBOOK_PATH = Path("data/raw/portfolio.xlsx")
 BATCH_UPLOAD_PATH = Path("data/raw/batch_upload.xlsx")
 
 st.set_page_config(page_title="Fleek Retention Dashboard", layout="wide")
+
+# Matches a trailing email sign-off paragraph like "Best,\nThe Fleek Team" or
+# "Regards,\nThe Fleek Team" so it can be dropped from the WhatsApp preview —
+# WhatsApp messages don't carry email-style sign-offs.
+_SIGNOFF_RE = re.compile(r"^\w+,\s*The Fleek Team$", re.IGNORECASE)
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.?!])\s+")
+
+
+def _format_for_whatsapp(message: str) -> str:
+    """Reformat a drafted email-style message for a WhatsApp preview:
+    drop the email sign-off paragraph and break paragraphs into one
+    sentence per line, which reads closer to how WhatsApp messages
+    are actually written."""
+    paragraphs = [p.strip() for p in message.strip().split("\n\n") if p.strip()]
+    paragraphs = [
+        p for p in paragraphs if not _SIGNOFF_RE.match(re.sub(r"\s+", " ", p))
+    ]
+
+    lines: list[str] = []
+    for paragraph in paragraphs:
+        normalized = re.sub(r"\s+", " ", paragraph).strip()
+        lines.extend(s.strip() for s in _SENTENCE_SPLIT_RE.split(normalized) if s.strip())
+
+    return "\n".join(lines)
+
+
+def _whatsapp_preview_html(message: str) -> str:
+    bubble_html = html.escape(message).replace("\n", "<br>")
+    js_message = json.dumps(message)
+    return f"""
+    <div style="font-family: -apple-system, Helvetica, Arial, sans-serif;">
+      <div style="color:#54656f; font-size:13px; font-weight:600; margin-bottom:4px;">
+        Fleek
+      </div>
+      <div style="background-color:#DCF8C6; border-radius:8px; padding:10px 12px;
+                  max-width:420px; font-size:14px; line-height:1.4; color:#111b21;
+                  box-shadow:0 1px 0.5px rgba(0,0,0,0.13);">
+        {bubble_html}
+      </div>
+      <button id="wa-copy-btn" style="margin-top:8px; background-color:#25D366;
+                  color:white; border:none; border-radius:6px; padding:6px 14px;
+                  font-size:13px; cursor:pointer;">
+        Copy for WhatsApp
+      </button>
+      <span id="wa-copy-status" style="margin-left:8px; font-size:12px; color:#54656f;"></span>
+      <script>
+        const btn = document.getElementById("wa-copy-btn");
+        const status = document.getElementById("wa-copy-status");
+        btn.addEventListener("click", async () => {{
+          try {{
+            await navigator.clipboard.writeText({js_message});
+            status.innerText = "Copied!";
+          }} catch (err) {{
+            status.innerText = "Couldn't copy — select and copy manually.";
+          }}
+          setTimeout(() => {{ status.innerText = ""; }}, 2000);
+        }});
+      </script>
+    </div>
+    """
 
 
 def _run_and_store(filepath) -> None:
@@ -166,6 +229,10 @@ elif view == "Action Center":
             height=250,
             key=f"message_{selected_id}_{tone}",
         )
+
+        st.markdown("**WhatsApp preview**")
+        whatsapp_message = _format_for_whatsapp(variant["message"])
+        st.iframe(_whatsapp_preview_html(whatsapp_message), height="content")
 
         if st.button("Mark as actioned", key=f"mark_actioned_{selected_id}"):
             mark_actioned(selected_id, db_path=DEFAULT_DB_PATH)
