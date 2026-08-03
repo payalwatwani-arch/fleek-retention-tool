@@ -150,11 +150,21 @@ def _print_report(report: dict) -> None:
     print("=" * 60)
 
 
-def _build_demo_workbook(path: Path) -> None:
+def _build_demo_workbook(
+    path: Path,
+    n_accounts: int = 300,
+    n_new: int = 50,
+    n_overlap: int = 15,
+    seed: int = 42,
+) -> None:
     """Generate a synthetic workbook matching the expected schema, with the
     edge cases the cleaning logic is meant to handle, so the pipeline can be
-    demoed without a real export on hand."""
-    rng = np.random.default_rng(42)
+    demoed without a real export on hand.
+
+    n_accounts/n_new/n_overlap default to the original 300/50/15 demo size;
+    callers (e.g. scale tests) can pass larger values to generate a bigger
+    book using the same realistic column ranges."""
+    rng = np.random.default_rng(seed)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     months = ["gmv_sep", "gmv_oct", "gmv_nov", "gmv_dec", "gmv_jan", "gmv_feb"]
@@ -274,18 +284,18 @@ def _build_demo_workbook(path: Path) -> None:
         }
         return pd.DataFrame(data)
 
-    accounts_df = make_rows(300, id_start=1)
+    accounts_df = make_rows(n_accounts, id_start=1)
     accounts_df.loc[accounts_df["account_id"] == "ACC-005", "account_status"] = "Duplicate"
 
-    # 50 new_accounts rows: 15 overlap with existing ids (updates), 35 are new.
-    overlap_ids = accounts_df["account_id"].iloc[10:25].tolist()
-    new_df = make_rows(50, id_start=301)
-    new_df.loc[:14, "account_id"] = overlap_ids
+    # n_overlap of the new_accounts rows overlap with existing ids (updates), the rest are new.
+    overlap_ids = accounts_df["account_id"].iloc[10:10 + n_overlap].tolist()
+    new_df = make_rows(n_new, id_start=n_accounts + 1)
+    new_df.loc[: n_overlap - 1, "account_id"] = overlap_ids
 
     readme_df = pd.DataFrame(
         {"Notes": [
-            "Accounts: primary account book, 300 rows.",
-            "new_accounts: incremental batch to merge in, 50 rows, same schema.",
+            f"Accounts: primary account book, {n_accounts} rows.",
+            f"new_accounts: incremental batch to merge in, {n_new} rows, same schema.",
             "account_status blank = not yet set. 'Duplicate' rows should be excluded and logged.",
         ]}
     )
