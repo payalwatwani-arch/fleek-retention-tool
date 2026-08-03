@@ -24,10 +24,9 @@ st.set_page_config(page_title="Fleek Retention Dashboard", layout="wide")
 
 
 def _run_and_store(filepath) -> None:
-    result = run_pipeline(filepath, db_path=DEFAULT_DB_PATH)
-    st.session_state.df = result["df"]
-    st.session_state.load_report = result["load_report"]
-    st.session_state.sync_summary = result["sync_summary"]
+    drafted_df, summary = run_pipeline(filepath, db_path=DEFAULT_DB_PATH)
+    st.session_state.df = drafted_df
+    st.session_state.sync_summary = summary
 
 
 # ---------------------------------------------------------------------
@@ -149,12 +148,23 @@ elif view == "Action Center":
         if row["is_at_risk"]:
             st.warning(f"At risk: {row['at_risk_detail']}")
 
-        st.text_input("Subject", value=row["draft_subject"], key=f"subject_{selected_id}")
+        variants_by_tone = {variant["tone"]: variant for variant in row["draft_variants"]}
+        tone = st.radio(
+            "Tone",
+            list(variants_by_tone),
+            key=f"tone_{selected_id}",
+            horizontal=True,
+        )
+        variant = variants_by_tone[tone]
+
+        st.text_input(
+            "Subject", value=variant["subject"], key=f"subject_{selected_id}_{tone}"
+        )
         st.text_area(
             "Message",
-            value=row["draft_message"],
+            value=variant["message"],
             height=250,
-            key=f"message_{selected_id}",
+            key=f"message_{selected_id}_{tone}",
         )
 
         if st.button("Mark as actioned", key=f"mark_actioned_{selected_id}"):
