@@ -11,7 +11,6 @@ Run with:
 from __future__ import annotations
 
 import html
-import json
 import re
 from pathlib import Path
 
@@ -52,7 +51,6 @@ def _format_for_whatsapp(message: str) -> str:
 
 def _whatsapp_preview_html(message: str) -> str:
     bubble_html = html.escape(message).replace("\n", "<br>")
-    js_message = json.dumps(message)
     return f"""
     <div style="font-family: -apple-system, Helvetica, Arial, sans-serif;">
       <div style="color:#54656f; font-size:13px; font-weight:600; margin-bottom:4px;">
@@ -63,25 +61,6 @@ def _whatsapp_preview_html(message: str) -> str:
                   box-shadow:0 1px 0.5px rgba(0,0,0,0.13);">
         {bubble_html}
       </div>
-      <button id="wa-copy-btn" style="margin-top:8px; background-color:#25D366;
-                  color:white; border:none; border-radius:6px; padding:6px 14px;
-                  font-size:13px; cursor:pointer;">
-        Copy for WhatsApp
-      </button>
-      <span id="wa-copy-status" style="margin-left:8px; font-size:12px; color:#54656f;"></span>
-      <script>
-        const btn = document.getElementById("wa-copy-btn");
-        const status = document.getElementById("wa-copy-status");
-        btn.addEventListener("click", async () => {{
-          try {{
-            await navigator.clipboard.writeText({js_message});
-            status.innerText = "Copied!";
-          }} catch (err) {{
-            status.innerText = "Couldn't copy — select and copy manually.";
-          }}
-          setTimeout(() => {{ status.innerText = ""; }}, 2000);
-        }});
-      </script>
     </div>
     """
 
@@ -232,7 +211,9 @@ elif view == "Action Center":
 
         st.markdown("**WhatsApp preview**")
         whatsapp_message = _format_for_whatsapp(variant["message"])
-        st.iframe(_whatsapp_preview_html(whatsapp_message), height="content")
+        st.markdown(_whatsapp_preview_html(whatsapp_message), unsafe_allow_html=True)
+        st.caption("Copy for WhatsApp:")
+        st.code(whatsapp_message, language=None)
 
         if st.button("Mark as actioned", key=f"mark_actioned_{selected_id}"):
             mark_actioned(selected_id, db_path=DEFAULT_DB_PATH)
