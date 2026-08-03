@@ -24,9 +24,9 @@ st.set_page_config(page_title="Fleek Retention Dashboard", layout="wide")
 
 
 def _run_and_store(filepath) -> None:
-    df, summary = run_pipeline(filepath, db_path=DEFAULT_DB_PATH)
-    st.session_state.df = df
-    st.session_state.summary = summary
+    drafted_df, summary = run_pipeline(filepath, db_path=DEFAULT_DB_PATH)
+    st.session_state.df = drafted_df
+    st.session_state.sync_summary = summary
 
 
 # ---------------------------------------------------------------------
@@ -75,7 +75,7 @@ if view == "Overview":
     col5.metric("At-risk accounts", f"{int(df['is_at_risk'].sum()):,}")
 
     st.subheader("Since last run")
-    summary = st.session_state.summary
+    summary = st.session_state.sync_summary
     changed = summary["new_count"] + summary["reset_to_pending_count"]
     st.write(f"**{changed} account(s) changed status since your last run.**")
     st.write(
@@ -148,12 +148,23 @@ elif view == "Action Center":
         if row["is_at_risk"]:
             st.warning(f"At risk: {row['at_risk_detail']}")
 
-        st.text_input("Subject", value=row["draft_subject"], key=f"subject_{selected_id}")
+        variants_by_tone = {variant["tone"]: variant for variant in row["draft_variants"]}
+        tone = st.radio(
+            "Tone",
+            list(variants_by_tone),
+            key=f"tone_{selected_id}",
+            horizontal=True,
+        )
+        variant = variants_by_tone[tone]
+
+        st.text_input(
+            "Subject", value=variant["subject"], key=f"subject_{selected_id}_{tone}"
+        )
         st.text_area(
             "Message",
-            value=row["draft_message"],
+            value=variant["message"],
             height=250,
-            key=f"message_{selected_id}",
+            key=f"message_{selected_id}_{tone}",
         )
 
         if st.button("Mark as actioned", key=f"mark_actioned_{selected_id}"):
@@ -173,13 +184,13 @@ elif view == "Batch Ingestion":
     batch_file = st.file_uploader("New workbook (.xlsx)", type=["xlsx"], key="batch_uploader")
 
     if batch_file is not None:
-        previous_summary = st.session_state.summary
+        previous_summary = st.session_state.sync_summary
 
         BATCH_UPLOAD_PATH.parent.mkdir(parents=True, exist_ok=True)
         BATCH_UPLOAD_PATH.write_bytes(batch_file.getvalue())
         _run_and_store(BATCH_UPLOAD_PATH)
 
-        new_summary = st.session_state.summary
+        new_summary = st.session_state.sync_summary
 
         st.success(f"Pipeline re-run on {len(st.session_state.df)} accounts.")
 
