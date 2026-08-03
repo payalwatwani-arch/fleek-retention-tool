@@ -209,11 +209,13 @@ elif view == "Action Center":
             key=f"message_{selected_id}_{tone}",
         )
 
-        st.markdown("**WhatsApp preview**")
-        whatsapp_message = _format_for_whatsapp(variant["message"])
-        st.markdown(_whatsapp_preview_html(whatsapp_message), unsafe_allow_html=True)
-        st.caption("Copy for WhatsApp:")
-        st.code(whatsapp_message, language=None)
+        # WhatsApp preview — disabled while styling is revisited; helpers
+        # (_format_for_whatsapp, _whatsapp_preview_html) stay defined above.
+        # st.markdown("**WhatsApp preview**")
+        # whatsapp_message = _format_for_whatsapp(variant["message"])
+        # st.markdown(_whatsapp_preview_html(whatsapp_message), unsafe_allow_html=True)
+        # st.caption("Copy for WhatsApp:")
+        # st.code(whatsapp_message, language=None)
 
         if st.button("Mark as actioned", key=f"mark_actioned_{selected_id}"):
             mark_actioned(selected_id, db_path=DEFAULT_DB_PATH)
