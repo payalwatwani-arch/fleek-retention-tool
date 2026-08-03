@@ -94,6 +94,18 @@ def segment_accounts(df: pd.DataFrame) -> pd.DataFrame:
     df.loc[declining, "segment"] = "Declining"
     df.loc[declining, "action"] = "Retention check-in"
 
+    # --- is_at_risk / at_risk_detail: independent of segment/action above,
+    # so a Broker-Reliant or Growth Headroom account can still surface as
+    # at-risk instead of that signal being silently overridden. ---
+    already_gone_signal = has_baseline & (df["gmv_trend_pct"] == ALREADY_GONE_TREND)
+    declining_signal = has_baseline & ~already_gone_signal & (df["gmv_trend_pct"] < DECLINE_THRESHOLD)
+
+    df["is_at_risk"] = already_gone_signal | declining_signal
+
+    df["at_risk_detail"] = pd.Series(pd.NA, index=df.index, dtype="object")
+    df.loc[already_gone_signal, "at_risk_detail"] = "Already Gone"
+    df.loc[declining_signal, "at_risk_detail"] = "Declining"
+
     return df
 
 
@@ -111,6 +123,15 @@ def _print_summary(df: pd.DataFrame) -> None:
     action_counts = df["action"].value_counts(dropna=False)
     for action, count in action_counts.items():
         print(f"  {str(action):<28} {count}")
+
+    at_risk = df["is_at_risk"] == True  # noqa: E712
+    print(f"\nAt-risk accounts (independent of primary segment): {int(at_risk.sum())}")
+
+    overlap_broker = at_risk & (df["segment"] == "Broker-Reliant")
+    overlap_headroom = at_risk & (df["segment"] == "Growth Headroom")
+    print("  ...of which also carry another primary signal:")
+    print(f"    {'Broker-Reliant + at-risk':<30} {int(overlap_broker.sum())}")
+    print(f"    {'Growth Headroom + at-risk':<30} {int(overlap_headroom.sum())}")
 
     print(f"\nTotal accounts processed: {len(df)}")
     print("=" * 60)
