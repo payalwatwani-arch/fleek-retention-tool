@@ -37,6 +37,76 @@ BATCH_UPLOAD_PATH = Path("data/raw/batch_upload.xlsx")
 
 st.set_page_config(page_title="Fleek Retention Dashboard", layout="wide")
 
+# ---------------------------------------------------------------------
+# Brand theme: fonts + the sage/mustard/rust semantic colors used by the
+# tag/badge/stepper helpers below. Base widget colors (background, primary
+# accent, text) come from .streamlit/config.toml instead, since Streamlit
+# picks those up natively.
+# ---------------------------------------------------------------------
+THEME_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'Space Grotesk', sans-serif;
+}
+h1, h2, h3 {
+    font-family: 'Archivo Black', sans-serif !important;
+    letter-spacing: 0.01em;
+}
+
+/* Segment tags */
+.tag {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-right: 4px;
+}
+.tag-sage    { background: #E4EDE5; color: #3F5B43; border: 1px solid #6B8F71; }
+.tag-mustard { background: #FBEFC2; color: #7A5C00; border: 1px solid #D9A800; }
+.tag-rust    { background: #F6DCD2; color: #7A2F16; border: 1px solid #C1502E; }
+
+/* Health score badge */
+.badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-weight: 700;
+}
+.badge-sage    { background: #6B8F71; color: #FDFBF6; }
+.badge-mustard { background: #D9A800; color: #FDFBF6; }
+.badge-rust    { background: #C1502E; color: #FDFBF6; }
+
+/* Health score factor breakdown */
+.badge-inline {
+    display: inline-block;
+    font-weight: 700;
+}
+.badge-inline-sage { color: #6B8F71; }
+.badge-inline-rust { color: #C1502E; }
+
+/* Stage stepper */
+.stepper-step {
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 6px;
+}
+.stepper-current   { color: #1C1A17; background: rgba(245, 196, 0, 0.30); }
+.stepper-completed { color: #4A4640; }
+.stepper-upcoming  { color: #B9B2A6; }
+
+/* Card / notes containers, matching the Paper card background */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    background-color: #F6F1E7;
+    border-color: #D9A800 !important;
+    border-radius: 10px;
+}
+</style>
+"""
+st.markdown(THEME_CSS, unsafe_allow_html=True)
+
 # Matches a trailing email sign-off paragraph like "Best,\nThe Fleek Team" or
 # "Regards,\nThe Fleek Team" so it can be dropped from the WhatsApp preview —
 # WhatsApp messages don't carry email-style sign-offs.
@@ -95,11 +165,34 @@ NO_ACTION = "None"
 
 
 def _score_color(score: int) -> str:
+    """Brand color tier for a health score: sage (healthy), mustard
+    (watch), rust (at-risk)."""
     if score >= 70:
-        return "green"
+        return "sage"
     if score >= 40:
-        return "orange"
-    return "red"
+        return "mustard"
+    return "rust"
+
+
+def _score_badge_html(score: int, arrow: str) -> str:
+    color = _score_color(score)
+    return f'<span class="badge badge-{color}">[{score}] {arrow}</span>'
+
+
+def _tag_category(tag: str) -> str:
+    """Brand color tier for a segment/at-risk-detail tag: rust for urgent
+    (at-risk) signals, mustard for a growth opportunity, sage for
+    everything else (healthy or a routine nudge)."""
+    if tag in ("Already Gone", "Declining"):
+        return "rust"
+    if tag == "Growth Headroom":
+        return "mustard"
+    return "sage"
+
+
+def _tag_html(tag: str) -> str:
+    category = _tag_category(tag)
+    return f'<span class="tag tag-{category}">{html.escape(str(tag))}</span>'
 
 
 def _segment_tags(row) -> list[str]:
@@ -155,18 +248,17 @@ def _render_card(row) -> None:
     inline (accounts_details() is what used to live here)."""
     account_id = row["account_id"]
     score, factors = compute_health_score(row)
-    color = _score_color(score)
     arrow = "↑" if (factors[0]["direction"] == "up" if factors else True) else "↓"
 
-    tags = " ".join(f"`{tag}`" for tag in _segment_tags(row))
+    tags = " ".join(_tag_html(tag) for tag in _segment_tags(row))
     status_line = _status_line(row)
 
-    label = f"**{account_id}**  ·  :{color}[{score}] {arrow}  ·  {tags}"
+    label = f"**{account_id}**  ·  {_score_badge_html(score, arrow)}  ·  {tags}"
     if status_line:
         label += f"  ·  {status_line}"
 
     with st.container(border=True):
-        st.markdown(label)
+        st.markdown(label, unsafe_allow_html=True)
         if st.button("View details →", key=f"view_{account_id}", use_container_width=True):
             st.session_state.selected_account = account_id
             st.rerun()
@@ -193,20 +285,25 @@ def _account_with_state(df: pd.DataFrame, account_id: str):
 
 
 def _render_stage_stepper(current_stage: str) -> None:
+    current_index = STAGES.index(current_stage)
     steps = []
-    for stage in STAGES:
-        if stage == current_stage:
-            steps.append(f":blue[**● {stage}**]")
+    for i, stage in enumerate(STAGES):
+        if i < current_index:
+            css_class, dot = "stepper-completed", "●"
+        elif i == current_index:
+            css_class, dot = "stepper-current", "●"
         else:
-            steps.append(f":gray[{stage}]")
-    st.markdown("&nbsp;&nbsp;→&nbsp;&nbsp;".join(steps))
+            css_class, dot = "stepper-upcoming", "○"
+        steps.append(f'<span class="stepper-step {css_class}">{dot} {stage}</span>')
+    st.markdown(
+        "&nbsp;&nbsp;→&nbsp;&nbsp;".join(steps), unsafe_allow_html=True
+    )
 
 
 def _render_account_overview(row) -> None:
     """The dedicated Account Overview page a Kanban card navigates to."""
     account_id = row["account_id"]
     score, factors = compute_health_score(row)
-    color = _score_color(score)
     arrow = "↑" if (factors[0]["direction"] == "up" if factors else True) else "↓"
 
     if st.button("← Back to Pipeline", key="back_to_pipeline"):
@@ -214,12 +311,16 @@ def _render_account_overview(row) -> None:
         st.rerun()
 
     st.title(account_id)
-    st.markdown(f"## :{color}[{score}] {arrow}  Health Score")
+    st.markdown(
+        f"## {_score_badge_html(score, arrow)}  Health Score", unsafe_allow_html=True
+    )
     st.caption(f"{row['ownership']} · {row['region']} · {row['buyer_persona']}")
 
     _render_stage_stepper(row["status"])
 
-    st.markdown(" ".join(f"`{tag}`" for tag in _segment_tags(row)))
+    st.markdown(
+        " ".join(_tag_html(tag) for tag in _segment_tags(row)), unsafe_allow_html=True
+    )
     status_line = _status_line(row)
     if status_line:
         st.caption(status_line)
@@ -253,8 +354,12 @@ def _render_account_overview(row) -> None:
     st.subheader("Health score breakdown")
     for factor in factors:
         factor_arrow = "↑" if factor["direction"] == "up" else "↓"
-        factor_color = "green" if factor["impact"] == "positive" else "red"
-        st.markdown(f":{factor_color}[{factor_arrow}] {factor['label']}")
+        factor_color = "sage" if factor["impact"] == "positive" else "rust"
+        st.markdown(
+            f'<span class="badge-inline badge-inline-{factor_color}">{factor_arrow}</span> '
+            f'{html.escape(factor["label"])}',
+            unsafe_allow_html=True,
+        )
 
     st.divider()
     if row["action"] == NO_ACTION:
@@ -285,20 +390,21 @@ def _render_account_overview(row) -> None:
 
     st.divider()
     st.subheader("Notes")
-    with st.form(key=f"note_form_{account_id}", clear_on_submit=True):
-        new_note = st.text_area("Add a note", key=f"new_note_{account_id}")
-        submitted = st.form_submit_button("Add note", key=f"submit_note_{account_id}")
-        if submitted and new_note.strip():
-            add_note(account_id, new_note, db_path=DEFAULT_DB_PATH)
-            st.rerun()
+    with st.container(border=True):
+        with st.form(key=f"note_form_{account_id}", clear_on_submit=True):
+            new_note = st.text_area("Add a note", key=f"new_note_{account_id}")
+            submitted = st.form_submit_button("Add note", key=f"submit_note_{account_id}")
+            if submitted and new_note.strip():
+                add_note(account_id, new_note, db_path=DEFAULT_DB_PATH)
+                st.rerun()
 
-    notes = get_notes(account_id, db_path=DEFAULT_DB_PATH)
-    if notes:
-        for note in notes:
-            st.markdown(f"**{note['timestamp']}**")
-            st.write(note["text"])
-    else:
-        st.caption("No notes yet.")
+        notes = get_notes(account_id, db_path=DEFAULT_DB_PATH)
+        if notes:
+            for note in notes:
+                st.markdown(f"**{note['timestamp']}**")
+                st.write(note["text"])
+        else:
+            st.caption("No notes yet.")
 
     # "No action needed" accounts are driven purely by the pipeline's own
     # resolution (segment/action moving them to a neutral state) -- same as
@@ -341,7 +447,7 @@ if "df" not in st.session_state:
 
 df = st.session_state.df
 
-st.title("Fleek Retention Dashboard")
+st.title("Fleek Retention Engine")
 view = st.sidebar.radio(
     "View", ["Overview", "Pipeline", "Batch Ingestion"]
 )
