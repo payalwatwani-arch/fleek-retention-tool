@@ -271,6 +271,115 @@ def test_tone_switching_changes_displayed_message(app):
 
 
 # ---------------------------------------------------------------------
+# Format tabs: Email / Text / Call
+# ---------------------------------------------------------------------
+def test_drafted_outreach_shows_three_format_tabs(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+
+    row = _first_account(df, lambda d: d["action"] != "None")
+    account_id = row["account_id"]
+    at = _open_account(at, account_id)
+
+    tabs = at.tabs
+    assert [t.label for t in tabs] == ["Email", "Text", "Call"]
+
+
+def test_email_tab_is_unchanged_subject_and_message(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+
+    row = _first_account(df, lambda d: d["action"] != "None")
+    account_id = row["account_id"]
+    at = _open_account(at, account_id)
+
+    email_tab = at.tabs[0]
+    subject = email_tab.text_input(key=f"subject_{account_id}_Direct")
+    message = email_tab.text_area(key=f"message_{account_id}_Direct")
+    assert account_id in subject.value or account_id in message.value
+
+
+def test_text_tab_drops_signoff_and_has_copy_code_block(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+
+    row = _first_account(df, lambda d: d["action"] != "None")
+    account_id = row["account_id"]
+    at = _open_account(at, account_id)
+
+    text_tab = at.tabs[1]
+    code_blocks = text_tab.code
+    assert len(code_blocks) == 1
+    text_message = code_blocks[0].value
+    assert "The Fleek Team" not in text_message
+    assert "Best," not in text_message
+    assert "Regards," not in text_message
+
+
+def test_text_tab_shortens_long_messages(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+
+    row = _first_account(df, lambda d: d["action"] != "None")
+    account_id = row["account_id"]
+    at = _open_account(at, account_id)
+
+    email_message = at.tabs[0].text_area(key=f"message_{account_id}_Direct").value
+    text_message = at.tabs[1].code[0].value
+    assert len(text_message) <= len(email_message)
+
+
+def test_call_tab_shows_four_part_talking_points_script(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+
+    row = _first_account(df, lambda d: d["action"] != "None")
+    account_id = row["account_id"]
+    at = _open_account(at, account_id)
+
+    call_tab = at.tabs[2]
+    markdown_values = [m.value for m in call_tab.markdown]
+    for label in ("**Opening line**", "**Key point to make**", "**If they push back**", "**Close with**"):
+        assert label in markdown_values
+
+
+def test_call_tab_script_is_personalized_with_account_numbers(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+
+    row = _first_account(df, lambda d: d["action"] == "Bundle nudge")
+    account_id = row["account_id"]
+    at = _open_account(at, account_id)
+
+    call_tab = at.tabs[2]
+    markdown_text = " ".join(m.value for m in call_tab.markdown)
+    expected_pct = f"{row['bundle_gmv_share_pct']:.0f}%"
+    assert expected_pct in markdown_text
+
+
+def test_switching_tone_updates_all_three_format_tabs(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+
+    row = _first_account(df, lambda d: d["action"] != "None")
+    account_id = row["account_id"]
+    at = _open_account(at, account_id)
+
+    direct_email = at.tabs[0].text_area(key=f"message_{account_id}_Direct").value
+    direct_text = at.tabs[1].code[0].value
+
+    tone_radio = at.radio(key=f"tone_{account_id}")
+    at = tone_radio.set_value("Warm").run()
+    assert not at.exception
+
+    warm_email = at.tabs[0].text_area(key=f"message_{account_id}_Warm").value
+    warm_text = at.tabs[1].code[0].value
+
+    assert warm_email != direct_email
+    assert warm_text != direct_text
+
+
+# ---------------------------------------------------------------------
 # Notes
 # ---------------------------------------------------------------------
 def test_adding_a_note_persists_and_displays_most_recent_first(app):

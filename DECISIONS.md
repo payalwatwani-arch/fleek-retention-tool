@@ -84,21 +84,28 @@ If referral/feedback data existed in a future version of this dataset, these
 would be natural additional levers — just not ones I'd fabricate criteria for
 now.
 
-## WhatsApp — static preview only, no real send integration
+## Email / Text / Call format tabs — static previews only, no real send integration
 
-Fleek's customer base (small resellers, vintage shops) likely relies heavily
-on WhatsApp for informal buyer communication, so the Action Center shows a
-styled WhatsApp-format preview of each drafted message alongside the email
-version, with a "Copy for WhatsApp" button.
+The Account Overview's drafted outreach now offers 3 format tabs per tone
+variant: "Email" (the subject + editable message, unchanged), "Text" (the
+same message reformatted shorter and casual, sign-off dropped, with a
+"Copy for Text" button), and "Call" (a 4-part talking-points script — opening
+line, key point, pushback reassurance, and close — for the AM to use live on
+the phone, one template per action type, personalized with the account's
+real numbers the same way the email templates are).
 
-Deliberately not built: an actual send integration (e.g. a wa.me link or the
-WhatsApp Business API). The dataset has no phone number or contact field for
-any account — building a real send button would mean either fabricating
-contact info for real, anonymised customers, or leaving it broken. Since this
-is real Fleek customer data, not fictional demo data, I didn't want to
-invent contact details that don't exist. The preview still demonstrates the
-channel-awareness the brief's context implies, without overstepping into
-data the file doesn't contain.
+Deliberately not built: an actual send integration for Text (e.g. a phone
+number field, an SMS API) or a real dialer for Call. The dataset has no
+phone number or contact field for any account — building a real send button
+would mean either fabricating contact info for real, anonymised customers,
+or leaving it broken. Since this is real Fleek customer data, not fictional
+demo data, I didn't want to invent contact details that don't exist. The
+tabs still demonstrate the channel-awareness the brief's context implies,
+without overstepping into data the file doesn't contain.
+
+(This replaces an earlier WhatsApp-only preview, which used the same
+"reformat + `st.code()` copy button" pattern now generalized into the Text
+tab.)
 
 ## Scale test — 30,000 accounts, proven not assumed
 

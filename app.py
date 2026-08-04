@@ -108,44 +108,191 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
 st.markdown(THEME_CSS, unsafe_allow_html=True)
 
 # Matches a trailing email sign-off paragraph like "Best,\nThe Fleek Team" or
-# "Regards,\nThe Fleek Team" so it can be dropped from the WhatsApp preview —
-# WhatsApp messages don't carry email-style sign-offs.
+# "Regards,\nThe Fleek Team" so it can be dropped from the Text tab — text
+# messages don't carry email-style sign-offs.
 _SIGNOFF_RE = re.compile(r"^\w+,\s*The Fleek Team$", re.IGNORECASE)
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.?!])\s+")
+# Roughly the point a message stops reading like a text and starts reading
+# like a forwarded email; past this, the Text tab trims to opening + ask.
+_TEXT_LENGTH_THRESHOLD = 280
 
 
-def _format_for_whatsapp(message: str) -> str:
-    """Reformat a drafted email-style message for a WhatsApp preview:
-    drop the email sign-off paragraph and break paragraphs into one
-    sentence per line, which reads closer to how WhatsApp messages
-    are actually written."""
+def _strip_signoff(message: str) -> list[str]:
+    """Paragraphs of a drafted email-style message with the trailing
+    sign-off paragraph dropped."""
     paragraphs = [p.strip() for p in message.strip().split("\n\n") if p.strip()]
-    paragraphs = [
-        p for p in paragraphs if not _SIGNOFF_RE.match(re.sub(r"\s+", " ", p))
-    ]
-
-    lines: list[str] = []
-    for paragraph in paragraphs:
-        normalized = re.sub(r"\s+", " ", paragraph).strip()
-        lines.extend(s.strip() for s in _SENTENCE_SPLIT_RE.split(normalized) if s.strip())
-
-    return "\n".join(lines)
+    return [p for p in paragraphs if not _SIGNOFF_RE.match(re.sub(r"\s+", " ", p))]
 
 
-def _whatsapp_preview_html(message: str) -> str:
-    bubble_html = html.escape(message).replace("\n", "<br>")
-    return f"""
-    <div style="font-family: -apple-system, Helvetica, Arial, sans-serif;">
-      <div style="color:#54656f; font-size:13px; font-weight:600; margin-bottom:4px;">
-        Fleek
-      </div>
-      <div style="background-color:#DCF8C6; border-radius:8px; padding:10px 12px;
-                  max-width:420px; font-size:14px; line-height:1.4; color:#111b21;
-                  box-shadow:0 1px 0.5px rgba(0,0,0,0.13);">
-        {bubble_html}
-      </div>
-    </div>
-    """
+def _format_for_text(message: str) -> str:
+    """Reformat a drafted email-style message into a short, casual text:
+    sign-off dropped, and if what's left still runs long for a text,
+    trimmed to its opening line plus its closing ask."""
+    paragraphs = _strip_signoff(message)
+    normalized = re.sub(r"\s+", " ", " ".join(paragraphs)).strip()
+
+    if len(normalized) <= _TEXT_LENGTH_THRESHOLD:
+        return normalized
+
+    sentences = [s.strip() for s in _SENTENCE_SPLIT_RE.split(normalized) if s.strip()]
+    if len(sentences) <= 2:
+        return normalized
+    return " ".join([sentences[0], sentences[-1]])
+
+
+def _pct(value, decimals: int = 0) -> str:
+    if value is None or pd.isna(value):
+        return "an unclear amount"
+    return f"{value:.{decimals}f}%"
+
+
+def _call_script_migration_play(row) -> dict[str, str]:
+    broker_pct = _pct(row.get("broker_reliance_pct"))
+    return {
+        "opening": f"Mention: {broker_pct} of their orders still go through their AM.",
+        "key_point": (
+            "Ordering directly in the product is faster for routine orders — no waiting on a "
+            "reply. Their AM is still there for anything that needs a human."
+        ),
+        "pushback": (
+            "If they worry about losing support, reassure them their AM relationship doesn't "
+            "change — this just adds a faster option for routine reorders."
+        ),
+        "close": "Offer a two-minute walkthrough of self-serve ordering.",
+    }
+
+
+def _call_script_win_back(row) -> dict[str, str]:
+    return {
+        "opening": "Mention: their spend has dropped to $0 over the past few months.",
+        "key_point": (
+            "We want to know if something changed, or if we made ordering harder than it "
+            "should be — happy to fix it."
+        ),
+        "pushback": (
+            "If they raise a specific frustration, acknowledge it directly and offer to loop "
+            "in the right person to resolve it."
+        ),
+        "close": "Ask what it would take to get them ordering again, and offer a follow-up call.",
+    }
+
+
+def _call_script_retention_checkin(row) -> dict[str, str]:
+    trend = row.get("gmv_trend_pct")
+    drop_pct = _pct(abs(trend)) if trend is not None and not pd.isna(trend) else "a noticeable amount"
+    return {
+        "opening": f"Mention: order volume is down about {drop_pct} over the past few months.",
+        "key_point": (
+            "Wanted to flag it early — ask if anything's changed: pricing, product fit, "
+            "point of contact."
+        ),
+        "pushback": (
+            "If they say everything's fine, gently probe for a specific reason — early "
+            "signals like this are usually explainable."
+        ),
+        "close": "Offer a quick follow-up call to talk it through.",
+    }
+
+
+def _call_script_bundle_nudge(row) -> dict[str, str]:
+    bundle_pct = _pct(row.get("bundle_gmv_share_pct"))
+    return {
+        "opening": f"Mention: only {bundle_pct} of their GMV has gone through bundles.",
+        "key_point": "Bundling their frequently-ordered items saves time on their next order.",
+        "pushback": "If they're unsure how it works, offer to walk them through it right now.",
+        "close": "Ask if they want to set up their first bundle together on the call.",
+    }
+
+
+def _call_script_offer_tool_nudge(row) -> dict[str, str]:
+    return {
+        "opening": "Mention: they've been ordering at list price without trying the make-an-offer tool.",
+        "key_point": "They can negotiate pricing directly in the product on items they're already browsing.",
+        "pushback": (
+            "If they think it sounds too good to be true, reassure them it's a standard "
+            "pricing tool on the platform."
+        ),
+        "close": "Ask if they want to try it live on an item during the call.",
+    }
+
+
+def _call_script_build_a_bundle_nudge(row) -> dict[str, str]:
+    handpick = row.get("handpick_orders")
+    bundled = row.get("bundle_orders")
+    handpick_str = "an unclear number of" if handpick is None or pd.isna(handpick) else f"{handpick:.0f}"
+    bundled_str = "an unclear number of" if bundled is None or pd.isna(bundled) else f"{bundled:.0f}"
+    return {
+        "opening": (
+            f"Mention: {handpick_str} handpicked orders in the last 6 months vs. "
+            f"{bundled_str} through pre-made bundles."
+        ),
+        "key_point": (
+            "The build-a-bundle tool lets them save their own selections as a reusable "
+            "bundle for one-click reordering."
+        ),
+        "pushback": (
+            "If they say their picks vary too much to bundle, point out it's editable any "
+            "time — not a fixed list."
+        ),
+        "close": "Offer to set up their first custom bundle together on the call.",
+    }
+
+
+def _call_script_chat_nudge(row) -> dict[str, str]:
+    return {
+        "opening": "Mention: they've been ordering steadily but haven't used chat with us yet.",
+        "key_point": "Chat is there for quick questions on sizing, availability, or anything else.",
+        "pushback": "If they say they'd rather call, let them know chat is just another option, not a replacement.",
+        "close": "Ask them to try it on their next question, big or small.",
+    }
+
+
+def _call_script_video_call_nudge(row) -> dict[str, str]:
+    return {
+        "opening": (
+            "Mention: they've been ordering steadily but haven't done a video call with us "
+            "yet (0 so far)."
+        ),
+        "key_point": (
+            "A quick 15-minute video call is a chance for a live walkthrough or to talk "
+            "through their account."
+        ),
+        "pushback": "If they're pressed for time, offer to keep it to 15 minutes or less.",
+        "close": "Offer to grab 15 minutes on video this week.",
+    }
+
+
+CALL_SCRIPTS = {
+    "Self-Serve Nudge": _call_script_migration_play,
+    "Win-back play": _call_script_win_back,
+    "Retention check-in": _call_script_retention_checkin,
+    "Build-a-Bundle nudge": _call_script_build_a_bundle_nudge,
+    "Bundle nudge": _call_script_bundle_nudge,
+    "Offer tool nudge": _call_script_offer_tool_nudge,
+    "Chat nudge": _call_script_chat_nudge,
+    "Video call nudge": _call_script_video_call_nudge,
+}
+
+CALL_SCRIPT_LABELS = [
+    ("opening", "Opening line"),
+    ("key_point", "Key point to make"),
+    ("pushback", "If they push back"),
+    ("close", "Close with"),
+]
+
+
+def _render_call_script(row, action: str) -> None:
+    """Talking-points script for the AM to use on an actual phone call —
+    not a message to send, so no copy button."""
+    builder = CALL_SCRIPTS.get(action)
+    if builder is None:
+        st.caption("No call script available for this action yet.")
+        return
+    script = builder(row)
+    for field_key, label in CALL_SCRIPT_LABELS:
+        with st.container(border=True):
+            st.markdown(f"**{label}**")
+            st.write(script[field_key])
 
 
 def _run_and_store(filepath) -> None:
@@ -378,15 +525,25 @@ def _render_account_overview(row) -> None:
         )
         variant = variants_by_tone[tone]
 
-        st.text_input(
-            "Subject", value=variant["subject"], key=f"subject_{account_id}_{tone}"
-        )
-        st.text_area(
-            "Message",
-            value=variant["message"],
-            height=250,
-            key=f"message_{account_id}_{tone}",
-        )
+        email_tab, text_tab, call_tab = st.tabs(["Email", "Text", "Call"])
+
+        with email_tab:
+            st.text_input(
+                "Subject", value=variant["subject"], key=f"subject_{account_id}_{tone}"
+            )
+            st.text_area(
+                "Message",
+                value=variant["message"],
+                height=250,
+                key=f"message_{account_id}_{tone}",
+            )
+
+        with text_tab:
+            st.caption("Copy for Text:")
+            st.code(_format_for_text(variant["message"]), language=None)
+
+        with call_tab:
+            _render_call_script(row, row["action"])
 
     st.divider()
     st.subheader("Notes")
