@@ -29,6 +29,8 @@ HASH_FIELD_DEFAULTS = {
     "pdp_views_6m": 10,
     "make_an_offer_6m": 0,
     "bundle_gmv_share_pct": 100,
+    "handpick_orders": 5,
+    "bundle_orders": 10,
     "chat_threads": 0,
     "video_call_requests": 0,
     "gmv_trend_pct": -10,

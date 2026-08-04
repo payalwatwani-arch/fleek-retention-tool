@@ -63,6 +63,8 @@ HASH_FIELDS = [
     "pdp_views_6m",
     "make_an_offer_6m",
     "bundle_gmv_share_pct",
+    "handpick_orders",
+    "bundle_orders",
     "chat_threads",
     "video_call_requests",
     "gmv_trend_pct",

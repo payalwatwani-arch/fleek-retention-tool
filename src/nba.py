@@ -241,33 +241,106 @@ def _draft_offer_tool_nudge(row) -> list[dict[str, str]]:
     ]
 
 
-def _draft_chat_call_nudge(row) -> list[dict[str, str]]:
+def _draft_build_a_bundle_nudge(row) -> list[dict[str, str]]:
     label = _account_label(row)
+    handpick = row.get("handpick_orders")
+    bundled = row.get("bundle_orders")
+    handpick_str = "an unclear number of" if handpick is None or pd.isna(handpick) else f"{handpick:.0f}"
+    bundled_str = "an unclear number of" if bundled is None or pd.isna(bundled) else f"{bundled:.0f}"
     return [
         {
             "tone": "Direct",
-            "subject": "15 minutes to connect?",
+            "subject": "Turn your handpicked orders into a reusable bundle",
             "message": (
-                f"Hi {label} team, you've been ordering steadily but haven't used chat or hopped on a call with "
-                f"us yet. Grab 15 minutes, or just drop a message if anything's come up."
+                f"Hi {label} team, you've handpicked {handpick_str} orders item-by-item in the last 6 months, "
+                f"versus {bundled_str} through pre-made bundles. Our build-a-bundle tool lets you save your own "
+                f"selections as a bundle you can reorder in one click — worth a try."
             ),
         },
         {
             "tone": "Warm",
-            "subject": "Got a minute to chat?",
+            "subject": "A faster way to reorder your usual picks",
             "message": (
-                f"Hi {label} team, we noticed you've been ordering steadily but haven't used chat or hopped on a "
-                f"call with us yet. Want to grab 15 minutes, or just drop a message if anything's come up "
-                f"lately?"
+                f"Hi {label} team, we noticed you've handpicked {handpick_str} orders item-by-item in the last 6 "
+                f"months, compared to {bundled_str} through pre-made bundles. Since you already know what you "
+                f"want, our build-a-bundle tool lets you save that exact selection as a bundle and reorder it in "
+                f"one click next time — want to give it a try?"
             ),
         },
         {
             "tone": "Formal",
-            "subject": "Requesting a brief check-in call",
+            "subject": "Introducing the build-a-bundle tool",
+            "message": (
+                f"Dear {label} team, our records show {handpick_str} handpicked, item-by-item orders from your "
+                f"account over the past 6 months, compared to {bundled_str} placed through pre-made bundles. We "
+                f"would like to introduce our build-a-bundle tool, which allows you to save your own selections "
+                f"as a reusable bundle for faster reordering. Please let us know if you would like assistance "
+                f"getting started."
+            ),
+        },
+    ]
+
+
+def _draft_chat_nudge(row) -> list[dict[str, str]]:
+    label = _account_label(row)
+    return [
+        {
+            "tone": "Direct",
+            "subject": "Got a question? Try chat",
+            "message": (
+                f"Hi {label} team, you've been ordering steadily but haven't used chat with us yet. It's there "
+                f"for quick questions on sizing, availability, or anything else — worth a try on your next "
+                f"order."
+            ),
+        },
+        {
+            "tone": "Warm",
+            "subject": "We're a chat message away",
+            "message": (
+                f"Hi {label} team, we noticed you've been ordering steadily but haven't tried chatting with us "
+                f"yet. If anything ever comes up — sizing, availability, timing — we're just a message away. "
+                f"Want to give it a try?"
+            ),
+        },
+        {
+            "tone": "Formal",
+            "subject": "Chat support now available to you",
             "message": (
                 f"Dear {label} team, we have noticed steady ordering activity on your account, though you have "
-                f"not yet made use of our chat or call support. We would welcome the opportunity to connect for "
-                f"15 minutes, or to hear from you by message should anything require attention."
+                f"not yet made use of our chat support. We would encourage you to reach out via chat should any "
+                f"questions arise regarding your orders."
+            ),
+        },
+    ]
+
+
+def _draft_video_call_nudge(row) -> list[dict[str, str]]:
+    label = _account_label(row)
+    return [
+        {
+            "tone": "Direct",
+            "subject": "15 minutes on video?",
+            "message": (
+                f"Hi {label} team, you've been ordering steadily but haven't requested a video call with us yet "
+                f"(0 so far). Grab 15 minutes if you'd like a walkthrough or want to talk through your account."
+            ),
+        },
+        {
+            "tone": "Warm",
+            "subject": "Want to hop on a quick video call?",
+            "message": (
+                f"Hi {label} team, we noticed you've been ordering steadily but haven't yet requested a video "
+                f"call with us (0 so far). We'd love to put a face to the account — want to grab 15 minutes for "
+                f"a walkthrough or just to chat?"
+            ),
+        },
+        {
+            "tone": "Formal",
+            "subject": "Offering a video consultation",
+            "message": (
+                f"Dear {label} team, we have noticed steady ordering activity on your account, though you have "
+                f"not yet requested a video call with us (0 to date). We would welcome the opportunity to "
+                f"arrange a 15-minute video consultation at your convenience."
             ),
         },
     ]
@@ -277,9 +350,11 @@ ACTION_TEMPLATES = {
     "Self-Serve Nudge": _draft_migration_play,
     "Win-back play": _draft_win_back_play,
     "Retention check-in": _draft_retention_checkin,
+    "Build-a-Bundle nudge": _draft_build_a_bundle_nudge,
     "Bundle nudge": _draft_bundle_nudge,
     "Offer tool nudge": _draft_offer_tool_nudge,
-    "Chat/call nudge": _draft_chat_call_nudge,
+    "Chat nudge": _draft_chat_nudge,
+    "Video call nudge": _draft_video_call_nudge,
 }
 
 AT_RISK_APPEND_SENTENCE = (

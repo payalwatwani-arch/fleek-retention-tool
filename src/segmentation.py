@@ -58,23 +58,41 @@ def segment_accounts(df: pd.DataFrame) -> pd.DataFrame:
 
     self_serve_median_orders = df.loc[is_ss, "orders_6m"].median()
 
-    bundle_nudge = headroom & (df["bundle_gmv_share_pct"] < BUNDLE_SHARE_THRESHOLD)
+    build_a_bundle_nudge = headroom & (df["handpick_orders"] > df["bundle_orders"])
+    df.loc[build_a_bundle_nudge, "action"] = "Build-a-Bundle nudge"
+
+    bundle_nudge = (
+        headroom
+        & ~build_a_bundle_nudge
+        & (df["bundle_gmv_share_pct"] < BUNDLE_SHARE_THRESHOLD)
+    )
     df.loc[bundle_nudge, "action"] = "Bundle nudge"
 
-    offer_nudge = headroom & ~bundle_nudge & (df["make_an_offer_6m"] == 0)
+    offer_nudge = (
+        headroom & ~build_a_bundle_nudge & ~bundle_nudge & (df["make_an_offer_6m"] == 0)
+    )
     df.loc[offer_nudge, "action"] = "Offer tool nudge"
+
+    prior_lever = build_a_bundle_nudge | bundle_nudge | offer_nudge
 
     chat_nudge = (
         headroom
-        & ~bundle_nudge
-        & ~offer_nudge
+        & ~prior_lever
         & (df["chat_threads"] == 0)
+        & (df["orders_6m"] > self_serve_median_orders)
+    )
+    df.loc[chat_nudge, "action"] = "Chat nudge"
+
+    video_call_nudge = (
+        headroom
+        & ~prior_lever
+        & ~chat_nudge
         & (df["video_call_requests"] == 0)
         & (df["orders_6m"] > self_serve_median_orders)
     )
-    df.loc[chat_nudge, "action"] = "Chat/call nudge"
+    df.loc[video_call_nudge, "action"] = "Video call nudge"
 
-    headroom_no_lever = headroom & ~bundle_nudge & ~offer_nudge & ~chat_nudge
+    headroom_no_lever = headroom & ~prior_lever & ~chat_nudge & ~video_call_nudge
     df.loc[headroom_no_lever, "action"] = "None"
 
     # --- At-risk: checked after AM/Self-Serve, only overrides "None" actions ---

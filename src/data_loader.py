@@ -248,6 +248,15 @@ def _build_demo_workbook(
             rng.uniform(0, 99, size=n),
         ).round(1)
 
+        # handpick_orders / bundle_orders: how many of an account's orders
+        # were assembled item-by-item vs. placed through a pre-made bundle.
+        # Independent of bundle_gmv_share_pct (a dollar-share-of-GMV
+        # measure) since an account can lean on a few large bundle orders
+        # by spend while still placing more individual handpicked orders
+        # by count, or vice versa.
+        handpick_orders = rng.integers(0, 30, size=n)
+        bundle_orders = rng.integers(0, 30, size=n)
+
         data = {
             "account_id": ids,
             "ownership": rng.choice(["Account Managed", "Self Serve"], size=n),
@@ -258,6 +267,8 @@ def _build_demo_workbook(
             "chat_threads": chat_threads,
             "video_call_requests": video_call_requests,
             "bundle_gmv_share_pct": bundle_gmv_share_pct,
+            "handpick_orders": handpick_orders,
+            "bundle_orders": bundle_orders,
             "gmv_total_6m": gmv_total_6m,
             "gmv_sep": gmv_sep.round(2),
             "gmv_oct": rng.uniform(500, 20000, size=n).round(2),
