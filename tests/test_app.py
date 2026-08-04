@@ -79,6 +79,20 @@ def _first_account(df, predicate):
     return matches.iloc[0]
 
 
+def _first_n_accounts(df, predicate, n):
+    matches = df[predicate(df)]
+    if len(matches) < n:
+        pytest.skip(f"demo workbook doesn't have {n} matching accounts to exercise this case")
+    return matches.iloc[:n]
+
+
+def _select_card(at: AppTest, account_id: str) -> AppTest:
+    """"Check" a card's selection checkbox."""
+    at = at.checkbox(key=f"select_{account_id}").set_value(True).run()
+    assert not at.exception
+    return at
+
+
 # ---------------------------------------------------------------------
 # Board structure: 3 stage columns, live counts
 # ---------------------------------------------------------------------
@@ -543,3 +557,149 @@ def test_default_filters_show_everything(app):
     df = at.session_state.df
     headers = _column_headers(at)
     assert f"**New ({len(df)})**" in headers
+
+
+# ---------------------------------------------------------------------
+# Multi-select + bulk actions
+# ---------------------------------------------------------------------
+def test_selecting_accounts_shows_bulk_actions_bar_with_correct_count(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    rows = _first_n_accounts(df, lambda d: d["action"] != "None", 2)
+
+    assert at.session_state.selected_account_ids == set()
+    with pytest.raises(KeyError):
+        at.button(key="bulk_mark_actioned")
+
+    for _, row in rows.iterrows():
+        at = _select_card(at, row["account_id"])
+
+    assert at.session_state.selected_account_ids == set(rows["account_id"])
+
+    button_labels = [b.label for b in at.button]
+    assert "Mark 2 as Actioned" in button_labels
+    assert "Generate messages for 2 selected" in button_labels
+
+
+def test_bulk_mark_actioned_updates_all_selected_accounts_and_clears_selection(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    rows = _first_n_accounts(df, lambda d: d["action"] != "None", 3)
+    account_ids = list(rows["account_id"])
+
+    for account_id in account_ids:
+        at = _select_card(at, account_id)
+
+    at = at.button(key="bulk_mark_actioned").click().run()
+    assert not at.exception
+
+    # Selection cleared: no bulk actions bar, and every checkbox unchecked.
+    assert at.session_state.selected_account_ids == set()
+    with pytest.raises(KeyError):
+        at.button(key="bulk_mark_actioned")
+    for account_id in account_ids:
+        assert at.checkbox(key=f"select_{account_id}").value is False
+
+    # All three accounts actually moved to Actioned, not just the first.
+    headers = _column_headers(at)
+    assert "**Actioned (3)**" in headers
+    assert f"**New ({len(df) - 3})**" in headers
+
+    for account_id in account_ids:
+        at2 = _open_account(at, account_id)
+        assert at2.button(key=f"undo_{account_id}") is not None
+        with pytest.raises(KeyError):
+            at2.button(key=f"mark_actioned_{account_id}")
+        at = at2.button(key="back_to_pipeline").click().run()
+
+
+def test_generate_messages_preview_shows_distinct_per_account_content(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    rows = _first_n_accounts(df, lambda d: d["action"] != "None", 2)
+    account_ids = list(rows["account_id"])
+
+    for account_id in account_ids:
+        at = _select_card(at, account_id)
+
+    at = at.button(key="bulk_generate_messages").click().run()
+    assert not at.exception
+
+    subjects = {
+        account_id: at.text_input(key=f"bulk_subject_{account_id}").value
+        for account_id in account_ids
+    }
+    messages = {
+        account_id: at.text_area(key=f"bulk_message_{account_id}").value
+        for account_id in account_ids
+    }
+
+    # Each account's own subject/message actually appears, and they're
+    # genuinely different across accounts, not one message duplicated.
+    first_id, second_id = account_ids
+    assert subjects[first_id] != subjects[second_id]
+    assert messages[first_id] != messages[second_id]
+
+    # Content matches what the account's own Account Overview page would
+    # show for the Direct tone, confirming it's the real personalized draft.
+    for account_id in account_ids:
+        at_detail = _open_account(at, account_id)
+        expected_subject = at_detail.text_input(key=f"subject_{account_id}_Direct").value
+        expected_message = at_detail.text_area(key=f"message_{account_id}_Direct").value
+        assert subjects[account_id] == expected_subject
+        assert messages[account_id] == expected_message
+        at = at_detail.button(key="back_to_pipeline").click().run()
+
+
+def test_mark_all_as_actioned_button_in_preview_bulk_marks_after_review(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    rows = _first_n_accounts(df, lambda d: d["action"] != "None", 2)
+    account_ids = list(rows["account_id"])
+
+    for account_id in account_ids:
+        at = _select_card(at, account_id)
+
+    at = at.button(key="bulk_generate_messages").click().run()
+    assert not at.exception
+
+    # Nothing marked yet just from previewing.
+    headers = _column_headers(at)
+    assert f"**New ({len(df)})**" in headers
+    assert "**Actioned (0)**" in headers
+
+    at = at.button(key="bulk_mark_actioned_after_preview").click().run()
+    assert not at.exception
+
+    headers = _column_headers(at)
+    assert "**Actioned (2)**" in headers
+    assert f"**New ({len(df) - 2})**" in headers
+
+    assert at.session_state.selected_account_ids == set()
+    for account_id in account_ids:
+        assert at.checkbox(key=f"select_{account_id}").value is False
+    with pytest.raises(KeyError):
+        at.button(key="bulk_mark_actioned")
+
+
+def test_selection_clears_when_navigating_to_account_overview(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    rows = _first_n_accounts(df, lambda d: d["action"] != "None", 2)
+    account_ids = list(rows["account_id"])
+
+    for account_id in account_ids:
+        at = _select_card(at, account_id)
+    assert at.session_state.selected_account_ids == set(account_ids)
+
+    at = _open_account(at, account_ids[0])
+    assert at.session_state.selected_account_ids == set()
+
+    at = at.button(key="back_to_pipeline").click().run()
+    assert not at.exception
+
+    # The checkboxes themselves are unchecked too, not just the tracking set.
+    for account_id in account_ids:
+        assert at.checkbox(key=f"select_{account_id}").value is False
+    with pytest.raises(KeyError):
+        at.button(key="bulk_mark_actioned")
