@@ -91,12 +91,12 @@ PIPELINE_COLUMNS = [
     },
     {
         "title": "At Risk",
-        "filter": lambda d: d["segment"] == "Declining",
+        "filter": lambda d: d["is_at_risk"] & (d["at_risk_detail"] == "Declining"),
         "metric": lambda r: f"{r['gmv_trend_pct']:.0f}% trend",
     },
     {
         "title": "Gone Cold",
-        "filter": lambda d: d["segment"] == "Already Gone",
+        "filter": lambda d: d["is_at_risk"] & (d["at_risk_detail"] == "Already Gone"),
         "metric": lambda r: f"${r['gmv_total_6m']:,.0f} GMV (6m)",
     },
     {
