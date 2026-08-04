@@ -489,7 +489,7 @@ def _render_bulk_actions(df: pd.DataFrame) -> None:
     mark_col, preview_col = st.columns(2)
 
     if mark_col.button(f"Mark {count} as Actioned", key="bulk_mark_actioned"):
-        for account_id in selected_ids:
+        for account_id in list(selected_ids):
             mark_actioned(account_id, db_path=DEFAULT_DB_PATH)
         st.success(f"{count} accounts marked as actioned")
         _clear_selection()
@@ -525,7 +525,7 @@ def _render_bulk_actions(df: pd.DataFrame) -> None:
                 )
 
         if st.button(f"Mark all {count} as actioned", key="bulk_mark_actioned_after_preview"):
-            for account_id in selected_ids:
+            for account_id in list(selected_ids):
                 mark_actioned(account_id, db_path=DEFAULT_DB_PATH)
             st.success(f"{count} accounts marked as actioned")
             _clear_selection()
