@@ -76,7 +76,8 @@ def _print_run(label: str, timings: dict, total: float, summary: dict) -> None:
     print(f"  {'TOTAL':<16} {total:8.3f}s{flag}")
     print(
         f"  new={summary['new_count']} "
-        f"reset_to_pending={summary['reset_to_pending_count']} "
+        f"follow_up={summary['follow_up_count']} "
+        f"resolved={summary['resolved_count']} "
         f"unchanged={summary['unchanged_count']}"
     )
 
@@ -100,9 +101,10 @@ def test_pipeline_scales_to_30000_accounts(tmp_path, monkeypatch):
     accounts_processed = summary_1["rows_after_cleaning"]
 
     # Run 1 against a fresh DB: every account is unseen, so it should all
-    # land as "new" and nothing should be reset or unchanged.
+    # land as "new" and nothing should be follow-up/resolved/unchanged.
     assert summary_1["new_count"] == accounts_processed
-    assert summary_1["reset_to_pending_count"] == 0
+    assert summary_1["follow_up_count"] == 0
+    assert summary_1["resolved_count"] == 0
     assert summary_1["unchanged_count"] == 0
 
     timings_2: dict = {}
@@ -111,11 +113,12 @@ def test_pipeline_scales_to_30000_accounts(tmp_path, monkeypatch):
     _, summary_2 = pipeline.run_pipeline(workbook, db_path=db_path)
     run2_total = time.perf_counter() - run2_start
 
-    # Run 2 against the SAME unchanged file: nothing should be new or reset
-    # -- this is the idempotency guarantee holding at 30k scale, not just
-    # the ~300-account demo scale.
+    # Run 2 against the SAME unchanged file: nothing should be new, moved to
+    # follow-up, or resolved -- this is the idempotency guarantee holding at
+    # 30k scale, not just the ~300-account demo scale.
     assert summary_2["new_count"] == 0
-    assert summary_2["reset_to_pending_count"] == 0
+    assert summary_2["follow_up_count"] == 0
+    assert summary_2["resolved_count"] == 0
     assert summary_2["unchanged_count"] == accounts_processed
 
     print("\n" + "=" * 60)

@@ -52,7 +52,8 @@ def run_pipeline(filepath, db_path=DEFAULT_DB_PATH) -> tuple[pd.DataFrame, dict]
         "segment_counts": segment_counts,
         "action_counts": action_counts,
         "new_count": state_summary["new_count"],
-        "reset_to_pending_count": state_summary["reset_to_pending_count"],
+        "follow_up_count": state_summary["follow_up_count"],
+        "resolved_count": state_summary["resolved_count"],
         "unchanged_count": state_summary["unchanged_count"],
     }
 
@@ -82,7 +83,8 @@ def print_report(summary: dict) -> None:
 
     print("\nState database changes since last run:")
     print(f"  New accounts            : {summary['new_count']}")
-    print(f"  Reset to pending        : {summary['reset_to_pending_count']}")
+    print(f"  Moved to follow-up      : {summary['follow_up_count']}")
+    print(f"  Resolved (no action)    : {summary['resolved_count']}")
     print(f"  Unchanged               : {summary['unchanged_count']}")
     print("=" * 60)
 

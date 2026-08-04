@@ -11,10 +11,14 @@ import pandas as pd
 import pytest
 
 from src.state import (
-    get_pending,
+    STAGE_ACTIONED,
+    STAGE_FOLLOW_UP,
+    STAGE_NEW,
+    get_by_stage,
     get_state_summary,
     mark_actioned,
     sync_state,
+    undo_action,
 )
 
 HASH_FIELD_DEFAULTS = {
@@ -46,47 +50,45 @@ def db_path(tmp_path):
     return tmp_path / "portfolio.db"
 
 
-def test_day1_day2_day3_walkthrough(db_path):
-    # Day 1: new account, broker_reliance_pct = 45 -> Self-Serve Nudge.
+def test_new_account_starts_at_new_stage(db_path):
     day1 = make_df(
         make_row("ACC-001", "Broker-Reliant", "Self-Serve Nudge", broker_reliance_pct=45)
     )
-    summary1 = sync_state(day1, db_path=db_path)
-    assert summary1 == {"new_count": 1, "reset_to_pending_count": 0, "unchanged_count": 0}
+    summary = sync_state(day1, db_path=db_path)
+    assert summary == {
+        "new_count": 1,
+        "follow_up_count": 0,
+        "resolved_count": 0,
+        "unchanged_count": 0,
+    }
 
-    pending = get_pending(db_path=db_path)
-    assert list(pending["account_id"]) == ["ACC-001"]
-    assert pending.iloc[0]["status"] == "pending"
+    new_accounts = get_by_stage(STAGE_NEW, db_path=db_path)
+    assert list(new_accounts["account_id"]) == ["ACC-001"]
+    assert new_accounts.iloc[0]["status"] == STAGE_NEW
+    assert new_accounts.iloc[0]["touch_count"] == 0
+    assert get_state_summary(db_path=db_path) == {
+        "total": 1,
+        "new": 1,
+        "actioned": 0,
+        "follow_up": 0,
+    }
 
-    # Ops actions it.
+
+def test_mark_actioned_moves_new_to_actioned(db_path):
+    df = make_df(make_row("ACC-001", "Broker-Reliant", "Self-Serve Nudge"))
+    sync_state(df, db_path=db_path)
+
     mark_actioned("ACC-001", db_path=db_path)
-    summary_after_action = get_state_summary(db_path=db_path)
-    assert summary_after_action == {"total": 1, "pending": 0, "actioned": 1}
 
-    # Day 2: identical input data (broker_reliance_pct still 45).
-    day2 = make_df(
-        make_row("ACC-001", "Broker-Reliant", "Self-Serve Nudge", broker_reliance_pct=45)
-    )
-    summary2 = sync_state(day2, db_path=db_path)
-    assert summary2 == {"new_count": 0, "reset_to_pending_count": 0, "unchanged_count": 1}
-    assert get_state_summary(db_path=db_path) == {"total": 1, "pending": 0, "actioned": 1}
-
-    # Day 3: broker_reliance_pct drops to 15 -> action becomes "None".
-    day3 = make_df(
-        make_row("ACC-001", "Healthy AM", "None", broker_reliance_pct=15)
-    )
-    summary3 = sync_state(day3, db_path=db_path)
-    assert summary3 == {"new_count": 0, "reset_to_pending_count": 1, "unchanged_count": 0}
-
-    final_summary = get_state_summary(db_path=db_path)
-    assert final_summary == {"total": 1, "pending": 1, "actioned": 0}
-
-    pending_after_day3 = get_pending(db_path=db_path)
-    row = pending_after_day3.iloc[0]
-    assert row["account_id"] == "ACC-001"
-    assert row["last_action"] == "None"
-    assert row["last_segment"] == "Healthy AM"
-    assert row["status"] == "pending"
+    actioned = get_by_stage(STAGE_ACTIONED, db_path=db_path)
+    assert list(actioned["account_id"]) == ["ACC-001"]
+    assert actioned.iloc[0]["actioned_date"] is not None
+    assert get_state_summary(db_path=db_path) == {
+        "total": 1,
+        "new": 0,
+        "actioned": 1,
+        "follow_up": 0,
+    }
 
 
 def test_rerunning_identical_data_twice_changes_nothing(db_path):
@@ -102,53 +104,208 @@ def test_rerunning_identical_data_twice_changes_nothing(db_path):
     summary_run2 = sync_state(df, db_path=db_path)
     summary_run3 = sync_state(df, db_path=db_path)
 
-    assert summary_run2 == {"new_count": 0, "reset_to_pending_count": 0, "unchanged_count": 2}
-    assert summary_run3 == {"new_count": 0, "reset_to_pending_count": 0, "unchanged_count": 2}
+    assert summary_run2 == {
+        "new_count": 0,
+        "follow_up_count": 0,
+        "resolved_count": 0,
+        "unchanged_count": 2,
+    }
+    assert summary_run3 == summary_run2
 
     after = get_state_summary(db_path=db_path)
-    assert before == after == {"total": 2, "pending": 1, "actioned": 1}
+    assert before == after == {"total": 2, "new": 1, "actioned": 1, "follow_up": 0}
 
 
-def test_actioned_account_resets_to_pending_when_action_changes(db_path):
+def test_data_change_while_new_stays_new(db_path):
+    day1 = make_df(
+        make_row("ACC-001", "Healthy AM", "None", broker_reliance_pct=15)
+    )
+    sync_state(day1, db_path=db_path)
+
+    # Data changes but the account was never actioned -- still "New", just
+    # with fresh segment/action recorded.
+    day2 = make_df(
+        make_row("ACC-001", "Broker-Reliant", "Self-Serve Nudge", broker_reliance_pct=45)
+    )
+    summary = sync_state(day2, db_path=db_path)
+
+    assert summary == {
+        "new_count": 0,
+        "follow_up_count": 0,
+        "resolved_count": 0,
+        "unchanged_count": 1,
+    }
+    new_accounts = get_by_stage(STAGE_NEW, db_path=db_path)
+    assert new_accounts.iloc[0]["last_action"] == "Self-Serve Nudge"
+    assert new_accounts.iloc[0]["last_segment"] == "Broker-Reliant"
+
+
+def test_actioned_account_moves_to_follow_up_when_action_still_needed(db_path):
     df_day1 = make_df(
         make_row("ACC-010", "Declining", "Retention check-in", gmv_trend_pct=-30)
     )
     sync_state(df_day1, db_path=db_path)
     mark_actioned("ACC-010", db_path=db_path)
-    assert get_state_summary(db_path=db_path) == {"total": 1, "pending": 0, "actioned": 1}
+    assert get_state_summary(db_path=db_path) == {
+        "total": 1,
+        "new": 0,
+        "actioned": 1,
+        "follow_up": 0,
+    }
 
-    # Trend worsens to "Already Gone" territory -> a genuinely different action.
+    # Trend worsens to "Already Gone" territory -- still needs action, just a
+    # different one.
     df_day2 = make_df(
         make_row("ACC-010", "Already Gone", "Win-back play", gmv_trend_pct=-100)
     )
     summary = sync_state(df_day2, db_path=db_path)
 
-    assert summary == {"new_count": 0, "reset_to_pending_count": 1, "unchanged_count": 0}
-    pending = get_pending(db_path=db_path)
-    assert pending.iloc[0]["account_id"] == "ACC-010"
-    assert pending.iloc[0]["last_action"] == "Win-back play"
-    assert pending.iloc[0]["last_segment"] == "Already Gone"
-    assert get_state_summary(db_path=db_path) == {"total": 1, "pending": 1, "actioned": 0}
+    assert summary == {
+        "new_count": 0,
+        "follow_up_count": 1,
+        "resolved_count": 0,
+        "unchanged_count": 0,
+    }
+    follow_up = get_by_stage(STAGE_FOLLOW_UP, db_path=db_path)
+    assert follow_up.iloc[0]["account_id"] == "ACC-010"
+    assert follow_up.iloc[0]["last_action"] == "Win-back play"
+    assert follow_up.iloc[0]["last_segment"] == "Already Gone"
+    assert follow_up.iloc[0]["touch_count"] == 1
+    assert get_state_summary(db_path=db_path) == {
+        "total": 1,
+        "new": 0,
+        "actioned": 0,
+        "follow_up": 1,
+    }
 
 
-def test_actioned_account_stays_actioned_when_action_unchanged(db_path):
+def test_touch_count_increments_on_repeated_follow_up(db_path):
     df_day1 = make_df(
-        make_row("ACC-020", "Growth Headroom", "Bundle nudge", pdp_views_6m=100)
+        make_row("ACC-010", "Declining", "Retention check-in", gmv_trend_pct=-30)
+    )
+    sync_state(df_day1, db_path=db_path)
+    mark_actioned("ACC-010", db_path=db_path)
+
+    df_day2 = make_df(
+        make_row("ACC-010", "Declining", "Retention check-in", gmv_trend_pct=-40)
+    )
+    sync_state(df_day2, db_path=db_path)
+    assert get_by_stage(STAGE_FOLLOW_UP, db_path=db_path).iloc[0]["touch_count"] == 1
+
+    # Data keeps changing while already in Follow-up -- action is still
+    # needed, so it stays in Follow-up and the touch count keeps climbing.
+    df_day3 = make_df(
+        make_row("ACC-010", "Declining", "Retention check-in", gmv_trend_pct=-50)
+    )
+    summary = sync_state(df_day3, db_path=db_path)
+    assert summary["follow_up_count"] == 1
+
+    follow_up = get_by_stage(STAGE_FOLLOW_UP, db_path=db_path)
+    assert follow_up.iloc[0]["touch_count"] == 2
+
+
+def test_actioned_account_settles_at_actioned_when_action_resolves_to_none(db_path):
+    df_day1 = make_df(
+        make_row("ACC-020", "Broker-Reliant", "Self-Serve Nudge", broker_reliance_pct=45)
     )
     sync_state(df_day1, db_path=db_path)
     mark_actioned("ACC-020", db_path=db_path)
-    assert get_state_summary(db_path=db_path) == {"total": 1, "pending": 0, "actioned": 1}
 
-    # pdp_views_6m moves (data_hash changes) but action stays "Bundle nudge".
+    # Broker reliance drops enough that the account is now "Healthy AM" with
+    # no action needed -- the pipeline itself reflects the resolution, no
+    # separate "Resolved" stage exists.
     df_day2 = make_df(
-        make_row("ACC-020", "Growth Headroom", "Bundle nudge", pdp_views_6m=150)
+        make_row("ACC-020", "Healthy AM", "None", broker_reliance_pct=15)
     )
     summary = sync_state(df_day2, db_path=db_path)
 
-    assert summary == {"new_count": 0, "reset_to_pending_count": 0, "unchanged_count": 1}
-    final = get_state_summary(db_path=db_path)
-    assert final == {"total": 1, "pending": 0, "actioned": 1}
+    assert summary == {
+        "new_count": 0,
+        "follow_up_count": 0,
+        "resolved_count": 1,
+        "unchanged_count": 0,
+    }
+    actioned = get_by_stage(STAGE_ACTIONED, db_path=db_path)
+    assert actioned.iloc[0]["account_id"] == "ACC-020"
+    assert actioned.iloc[0]["last_segment"] == "Healthy AM"
+    assert actioned.iloc[0]["last_action"] == "None"
+    assert get_by_stage(STAGE_FOLLOW_UP, db_path=db_path).empty
 
-    with pd.option_context("display.max_rows", None):
-        pending = get_pending(db_path=db_path)
-    assert pending.empty
+
+def test_follow_up_account_settles_at_actioned_when_action_resolves_to_none(db_path):
+    df_day1 = make_df(
+        make_row("ACC-030", "Declining", "Retention check-in", gmv_trend_pct=-30)
+    )
+    sync_state(df_day1, db_path=db_path)
+    mark_actioned("ACC-030", db_path=db_path)
+
+    df_day2 = make_df(
+        make_row("ACC-030", "Declining", "Retention check-in", gmv_trend_pct=-40)
+    )
+    sync_state(df_day2, db_path=db_path)
+    assert not get_by_stage(STAGE_FOLLOW_UP, db_path=db_path).empty
+
+    # Trend recovers -- account no longer needs a retention check-in.
+    df_day3 = make_df(
+        make_row("ACC-030", "Self-Serve, No Headroom", "None", gmv_trend_pct=5)
+    )
+    summary = sync_state(df_day3, db_path=db_path)
+
+    assert summary["resolved_count"] == 1
+    assert get_by_stage(STAGE_FOLLOW_UP, db_path=db_path).empty
+    actioned = get_by_stage(STAGE_ACTIONED, db_path=db_path)
+    assert actioned.iloc[0]["last_action"] == "None"
+
+
+def test_undo_action_reverts_actioned_to_new(db_path):
+    df = make_df(make_row("ACC-001", "Broker-Reliant", "Self-Serve Nudge"))
+    sync_state(df, db_path=db_path)
+    mark_actioned("ACC-001", db_path=db_path)
+    assert get_by_stage(STAGE_ACTIONED, db_path=db_path).shape[0] == 1
+
+    undo_action("ACC-001", db_path=db_path)
+
+    new_accounts = get_by_stage(STAGE_NEW, db_path=db_path)
+    assert list(new_accounts["account_id"]) == ["ACC-001"]
+    assert new_accounts.iloc[0]["actioned_date"] is None
+
+
+def test_undo_action_reverts_follow_up_to_actioned_and_decrements_touch(db_path):
+    df_day1 = make_df(
+        make_row("ACC-010", "Declining", "Retention check-in", gmv_trend_pct=-30)
+    )
+    sync_state(df_day1, db_path=db_path)
+    mark_actioned("ACC-010", db_path=db_path)
+
+    df_day2 = make_df(
+        make_row("ACC-010", "Declining", "Retention check-in", gmv_trend_pct=-40)
+    )
+    sync_state(df_day2, db_path=db_path)
+    assert get_by_stage(STAGE_FOLLOW_UP, db_path=db_path).iloc[0]["touch_count"] == 1
+
+    undo_action("ACC-010", db_path=db_path)
+
+    actioned = get_by_stage(STAGE_ACTIONED, db_path=db_path)
+    assert list(actioned["account_id"]) == ["ACC-010"]
+    assert actioned.iloc[0]["touch_count"] == 0
+
+
+def test_undo_action_on_new_account_is_a_no_op(db_path):
+    df = make_df(make_row("ACC-001", "Broker-Reliant", "Self-Serve Nudge"))
+    sync_state(df, db_path=db_path)
+
+    undo_action("ACC-001", db_path=db_path)
+
+    new_accounts = get_by_stage(STAGE_NEW, db_path=db_path)
+    assert list(new_accounts["account_id"]) == ["ACC-001"]
+
+
+def test_undo_action_on_unknown_account_is_a_no_op(db_path):
+    # Should not raise, even though the account was never synced.
+    undo_action("ACC-999", db_path=db_path)
+    assert get_state_summary(db_path=db_path) == {
+        "total": 0,
+        "new": 0,
+        "actioned": 0,
+        "follow_up": 0,
+    }

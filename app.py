@@ -18,7 +18,16 @@ import streamlit as st
 
 from src.pipeline import run_pipeline
 from src.scoring import compute_health_score
-from src.state import DEFAULT_DB_PATH, get_pending, mark_actioned
+from src.segmentation import ACCOUNT_MANAGED, SELF_SERVE
+from src.state import (
+    DEFAULT_DB_PATH,
+    STAGE_ACTIONED,
+    STAGE_FOLLOW_UP,
+    STAGE_NEW,
+    get_by_stage,
+    mark_actioned,
+    undo_action,
+)
 
 WORKBOOK_PATH = Path("data/raw/portfolio.xlsx")
 BATCH_UPLOAD_PATH = Path("data/raw/batch_upload.xlsx")
@@ -73,38 +82,13 @@ def _run_and_store(filepath) -> None:
 
 
 # ---------------------------------------------------------------------
-# Pipeline board (Kanban) — columns, per-card metric, and health badge
-# coloring. Each column pulls a single real number that's the most
-# relevant signal for that segment, matching the CRM pipeline pattern of
-# one glanceable metric per card rather than a dense table row.
+# Pipeline board (Kanban) — columns are contact stage (New / Actioned /
+# Follow-up), not segment. Segment (plus an at-risk detail, when it adds
+# information) shows as tag(s) on each card instead.
 # ---------------------------------------------------------------------
-PIPELINE_COLUMNS = [
-    {
-        "title": "Self-Serve Nudge",
-        "filter": lambda d: d["segment"] == "Broker-Reliant",
-        "metric": lambda r: f"{r['broker_reliance_pct']:.0f}% reliant",
-    },
-    {
-        "title": "Trending",
-        "filter": lambda d: d["segment"] == "Growth Headroom",
-        "metric": lambda r: f"{r['pdp_views_6m']:.0f} PDP views (6m)",
-    },
-    {
-        "title": "At Risk",
-        "filter": lambda d: d["segment"] == "Declining",
-        "metric": lambda r: f"{r['gmv_trend_pct']:.0f}% trend",
-    },
-    {
-        "title": "Gone Cold",
-        "filter": lambda d: d["segment"] == "Already Gone",
-        "metric": lambda r: f"${r['gmv_total_6m']:,.0f} GMV (6m)",
-    },
-    {
-        "title": "Neutral",
-        "filter": lambda d: d["segment"].isin(["Healthy AM", "Self-Serve, No Headroom"]),
-        "metric": lambda r: f"${r['gmv_total_6m']:,.0f} GMV (6m)",
-    },
-]
+STAGES = [STAGE_NEW, STAGE_ACTIONED, STAGE_FOLLOW_UP]
+
+NO_ACTION = "None"
 
 
 def _score_color(score: int) -> str:
@@ -115,14 +99,68 @@ def _score_color(score: int) -> str:
     return "red"
 
 
-def _render_card(row, metric_fn, pending_ids: set) -> None:
+def _segment_tags(row) -> list[str]:
+    """PRIMARY segment as one tag, plus a second tag when is_at_risk adds
+    information the primary segment doesn't already carry."""
+    tags = [row["segment"]]
+    at_risk_detail = row.get("at_risk_detail")
+    if row.get("is_at_risk") and at_risk_detail and at_risk_detail != row["segment"]:
+        tags.append(at_risk_detail)
+    return tags
+
+
+def _status_line(row) -> str:
+    """Card status text: stage-driven, except "New" is always blank and a
+    resolved ("None") action always reads as no-action-needed regardless
+    of which post-New stage it settled in."""
+    if row["status"] == STAGE_NEW:
+        return ""
+    if row["action"] == NO_ACTION:
+        return "No action needed"
+    if row["status"] == STAGE_ACTIONED:
+        return f"Actioned {row['actioned_date']}"
+    return f"Follow-up needed (touch {row['touch_count']})"
+
+
+def _apply_filters(df, region: str, persona: str, ownership: str, at_risk_only: bool):
+    filtered = df
+    if region != "All":
+        filtered = filtered[filtered["region"] == region]
+    if persona != "All":
+        filtered = filtered[filtered["buyer_persona"] == persona]
+    if ownership != "All":
+        filtered = filtered[filtered["ownership"] == ownership]
+    if at_risk_only:
+        filtered = filtered[filtered["is_at_risk"] == True]  # noqa: E712
+    return filtered
+
+
+def _stage_accounts(df, stage: str):
+    """Accounts from the (already filtered) dataframe currently at `stage`,
+    joined with their stage bookkeeping (status/touch_count/actioned_date)."""
+    state_df = get_by_stage(stage, db_path=DEFAULT_DB_PATH)
+    return df.merge(
+        state_df[["account_id", "status", "touch_count", "actioned_date"]],
+        on="account_id",
+        how="inner",
+    )
+
+
+def _render_card(row) -> None:
     account_id = row["account_id"]
     score, factors = compute_health_score(row)
     color = _score_color(score)
+    arrow = "↑" if (factors[0]["direction"] == "up" if factors else True) else "↓"
 
-    label = f"**{account_id}**  ·  :{color}[{score}]  ·  {metric_fn(row)}"
+    tags = " ".join(f"`{tag}`" for tag in _segment_tags(row))
+    status_line = _status_line(row)
+
+    label = f"**{account_id}**  ·  :{color}[{score}] {arrow}  ·  {tags}"
+    if status_line:
+        label += f"  ·  {status_line}"
+
     with st.expander(label):
-        st.caption(f"{row['ownership']} · {row['region']} · segment: {row['segment']}")
+        st.caption(f"{row['ownership']} · {row['region']} · {row['buyer_persona']}")
 
         # Kanban columns are narrow, so a KPI-tile grid (st.metric) clips its
         # values here — plain label/value markdown wraps instead of
@@ -147,18 +185,18 @@ def _render_card(row, metric_fn, pending_ids: set) -> None:
 
         st.markdown(f"**Health score: :{color}[{score}]**")
         for factor in factors:
-            arrow = "↑" if factor["direction"] == "up" else "↓"
+            factor_arrow = "↑" if factor["direction"] == "up" else "↓"
             factor_color = "green" if factor["impact"] == "positive" else "red"
-            st.markdown(f":{factor_color}[{arrow}] {factor['label']}")
+            st.markdown(f":{factor_color}[{factor_arrow}] {factor['label']}")
 
         if row["is_at_risk"]:
             st.warning(f"At risk: {row['at_risk_detail']}")
 
-        variants = row["draft_variants"]
-        if not variants:
-            st.caption("No action needed for this account.")
+        if row["action"] == NO_ACTION:
+            st.caption("No action needed.")
             return
 
+        variants = row["draft_variants"]
         st.write(f"**Action:** {row['action']}")
 
         variants_by_tone = {variant["tone"]: variant for variant in variants}
@@ -180,12 +218,16 @@ def _render_card(row, metric_fn, pending_ids: set) -> None:
             key=f"message_{account_id}_{tone}",
         )
 
-        if account_id in pending_ids:
-            if st.button("Mark as actioned", key=f"mark_actioned_{account_id}"):
+        stage = row["status"]
+        button_col1, button_col2 = st.columns(2)
+        if stage in (STAGE_NEW, STAGE_FOLLOW_UP):
+            if button_col1.button("Mark as Actioned", key=f"mark_actioned_{account_id}"):
                 mark_actioned(account_id, db_path=DEFAULT_DB_PATH)
                 st.rerun()
-        else:
-            st.success("Actioned")
+        if stage in (STAGE_ACTIONED, STAGE_FOLLOW_UP):
+            if button_col2.button("Undo", key=f"undo_{account_id}"):
+                undo_action(account_id, db_path=DEFAULT_DB_PATH)
+                st.rerun()
 
 
 # ---------------------------------------------------------------------
@@ -235,34 +277,50 @@ if view == "Overview":
 
     st.subheader("Since last run")
     summary = st.session_state.sync_summary
-    changed = summary["new_count"] + summary["reset_to_pending_count"]
+    changed = summary["new_count"] + summary["follow_up_count"] + summary["resolved_count"]
     st.write(f"**{changed} account(s) changed status since your last run.**")
     st.write(
         f"- New accounts: {summary['new_count']}\n"
-        f"- Reset to pending (something changed): {summary['reset_to_pending_count']}\n"
+        f"- Moved to follow-up (something changed): {summary['follow_up_count']}\n"
+        f"- Resolved (no action needed anymore): {summary['resolved_count']}\n"
         f"- Unchanged: {summary['unchanged_count']}"
     )
 
 # ---------------------------------------------------------------------
-# VIEW 2 — Pipeline (Kanban board)
+# VIEW 2 — Pipeline (Kanban board, by contact stage)
 # ---------------------------------------------------------------------
 elif view == "Pipeline":
     st.header("Pipeline")
 
-    # Read straight from the state DB (not session_state) so a
-    # mark_actioned() call is reflected immediately, with no pipeline rerun.
-    pending = get_pending(db_path=DEFAULT_DB_PATH)
-    pending_ids = set(pending["account_id"])
+    icon_col, region_col, persona_col, ownership_col, at_risk_col = st.columns(
+        [1.1, 2, 2, 2, 1.5]
+    )
+    with icon_col:
+        st.markdown("&nbsp;")
+        st.markdown("🔍 **Filter by**")
+    with region_col:
+        region = st.selectbox(
+            "Region", ["All"] + sorted(df["region"].dropna().unique().tolist())
+        )
+    with persona_col:
+        persona = st.selectbox(
+            "Buyer persona", ["All"] + sorted(df["buyer_persona"].dropna().unique().tolist())
+        )
+    with ownership_col:
+        ownership = st.selectbox("Ownership", ["All", ACCOUNT_MANAGED, SELF_SERVE])
+    with at_risk_col:
+        st.markdown("&nbsp;")
+        at_risk_only = st.checkbox("At-risk only")
 
-    board_columns = st.columns(len(PIPELINE_COLUMNS))
-    for board_col, column_def in zip(board_columns, PIPELINE_COLUMNS):
+    filtered_df = _apply_filters(df, region, persona, ownership, at_risk_only)
+
+    board_columns = st.columns(len(STAGES))
+    for board_col, stage in zip(board_columns, STAGES):
         with board_col:
-            column_df = df[column_def["filter"](df)]
-            total_gmv = column_df["gmv_total_6m"].sum()
-            st.markdown(f"**{column_def['title']} ({len(column_df)})**")
-            st.caption(f"${total_gmv:,.0f} total GMV")
-            for _, row in column_df.iterrows():
-                _render_card(row, column_def["metric"], pending_ids)
+            stage_df = _stage_accounts(filtered_df, stage)
+            st.markdown(f"**{stage} ({len(stage_df)})**")
+            for _, row in stage_df.iterrows():
+                _render_card(row)
 
 # ---------------------------------------------------------------------
 # VIEW 3 — Batch ingestion
@@ -292,10 +350,12 @@ elif view == "Batch Ingestion":
         with before_col:
             st.markdown("**Before this upload**")
             st.metric("New", previous_summary["new_count"])
-            st.metric("Reset to pending", previous_summary["reset_to_pending_count"])
+            st.metric("Moved to follow-up", previous_summary["follow_up_count"])
+            st.metric("Resolved", previous_summary["resolved_count"])
             st.metric("Unchanged", previous_summary["unchanged_count"])
         with after_col:
             st.markdown("**After this upload**")
             st.metric("New", new_summary["new_count"])
-            st.metric("Reset to pending", new_summary["reset_to_pending_count"])
+            st.metric("Moved to follow-up", new_summary["follow_up_count"])
+            st.metric("Resolved", new_summary["resolved_count"])
             st.metric("Unchanged", new_summary["unchanged_count"])

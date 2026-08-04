@@ -7,6 +7,17 @@ is a fingerprint of the input fields `segmentation.py` actually reads —
 if none of those changed, the account's state is left completely alone,
 regardless of what the daily run recomputed.
 
+Each account sits in one of three contact stages:
+
+  - "New"       — never actioned yet.
+  - "Actioned"  — an AM has reached out. Also where an account lands (and
+                  stays) once its action resolves to "None" — the pipeline
+                  itself reflects that resolution via segment/action, so
+                  there's no separate "Resolved" stage.
+  - "Follow-up" — was actioned, but the account's real data changed since
+                  and it still needs action. `touch_count` counts how many
+                  times this has happened.
+
 Run directly to print the current state summary (from the project root):
 
     python -m src.state
@@ -28,8 +39,18 @@ ACCOUNT_ID_COLUMN = "account_id"
 SEGMENT_COLUMN = "segment"
 ACTION_COLUMN = "action"
 
-STATUS_PENDING = "pending"
-STATUS_ACTIONED = "actioned"
+NO_ACTION = "None"
+
+STAGE_NEW = "New"
+STAGE_ACTIONED = "Actioned"
+STAGE_FOLLOW_UP = "Follow-up"
+
+# Reverts one stage backward: Follow-up -> Actioned -> New. "New" has no
+# entry, since there's nothing before it to undo to.
+_UNDO_TARGET = {
+    STAGE_FOLLOW_UP: STAGE_ACTIONED,
+    STAGE_ACTIONED: STAGE_NEW,
+}
 
 # The input fields segmentation.py actually reads. A data_hash over exactly
 # these fields means the hash only changes when something that could change
@@ -53,7 +74,8 @@ CREATE TABLE IF NOT EXISTS account_state (
   last_segment TEXT NOT NULL,
   last_action TEXT NOT NULL,
   data_hash TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('pending', 'actioned')),
+  status TEXT NOT NULL CHECK (status IN ('New', 'Actioned', 'Follow-up')),
+  touch_count INTEGER NOT NULL DEFAULT 0,
   actioned_date TEXT,
   first_seen_date TEXT NOT NULL,
   last_updated_date TEXT NOT NULL
@@ -91,18 +113,24 @@ def _today() -> str:
 def sync_state(df: pd.DataFrame, db_path=DEFAULT_DB_PATH) -> dict:
     """Reconcile the full draft_actions() output against the state DB.
 
-    - Unseen account_id: inserted as "pending".
+    - Unseen account_id: inserted at stage "New".
     - Known account_id, data_hash unchanged: left completely untouched.
-    - Known account_id, data_hash changed and the action changed: segment/
-      action updated, status reset to "pending".
-    - Known account_id, data_hash changed but the action is the same:
-      segment/action updated, but status is left as-is.
+    - Known account_id, data_hash changed, still at "New": segment/action
+      updated in place, stage stays "New" (nobody has acted on it yet).
+    - Known account_id, data_hash changed, action now "None": the account's
+      data changed such that it no longer needs action (e.g. it moved to a
+      neutral segment) — that resolution is reflected via segment/action
+      alone, so the stage settles at "Actioned" (or stays there).
+    - Known account_id, data_hash changed, action still needed: stage moves
+      to "Follow-up" and touch_count increments, whether it came from
+      "Actioned" or was already in "Follow-up".
 
-    Returns {"new_count", "reset_to_pending_count", "unchanged_count"}.
+    Returns {"new_count", "follow_up_count", "resolved_count", "unchanged_count"}.
     """
     today = _today()
     new_count = 0
-    reset_to_pending_count = 0
+    follow_up_count = 0
+    resolved_count = 0
     unchanged_count = 0
 
     with closing(_connect(db_path)) as conn:
@@ -124,9 +152,9 @@ def sync_state(df: pd.DataFrame, db_path=DEFAULT_DB_PATH) -> dict:
                 cur.execute(
                     "INSERT INTO account_state "
                     "(account_id, last_segment, last_action, data_hash, status, "
-                    "actioned_date, first_seen_date, last_updated_date) "
-                    "VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
-                    (account_id, segment, action, data_hash, STATUS_PENDING, today, today),
+                    "touch_count, actioned_date, first_seen_date, last_updated_date) "
+                    "VALUES (?, ?, ?, ?, ?, 0, NULL, ?, ?)",
+                    (account_id, segment, action, data_hash, STAGE_NEW, today, today),
                 )
                 new_count += 1
                 continue
@@ -137,64 +165,112 @@ def sync_state(df: pd.DataFrame, db_path=DEFAULT_DB_PATH) -> dict:
                 unchanged_count += 1
                 continue
 
-            if action != prev_action:
-                cur.execute(
-                    "UPDATE account_state SET last_segment = ?, last_action = ?, "
-                    "data_hash = ?, status = ?, last_updated_date = ? "
-                    "WHERE account_id = ?",
-                    (segment, action, data_hash, STATUS_PENDING, today, account_id),
-                )
-                reset_to_pending_count += 1
-            else:
+            if prev_status == STAGE_NEW:
                 cur.execute(
                     "UPDATE account_state SET last_segment = ?, last_action = ?, "
                     "data_hash = ?, last_updated_date = ? WHERE account_id = ?",
                     (segment, action, data_hash, today, account_id),
                 )
                 unchanged_count += 1
+            elif action == NO_ACTION:
+                cur.execute(
+                    "UPDATE account_state SET last_segment = ?, last_action = ?, "
+                    "data_hash = ?, status = ?, last_updated_date = ? "
+                    "WHERE account_id = ?",
+                    (segment, action, data_hash, STAGE_ACTIONED, today, account_id),
+                )
+                resolved_count += 1
+            else:
+                cur.execute(
+                    "UPDATE account_state SET last_segment = ?, last_action = ?, "
+                    "data_hash = ?, status = ?, touch_count = touch_count + 1, "
+                    "last_updated_date = ? WHERE account_id = ?",
+                    (segment, action, data_hash, STAGE_FOLLOW_UP, today, account_id),
+                )
+                follow_up_count += 1
 
         conn.commit()
 
     return {
         "new_count": new_count,
-        "reset_to_pending_count": reset_to_pending_count,
+        "follow_up_count": follow_up_count,
+        "resolved_count": resolved_count,
         "unchanged_count": unchanged_count,
     }
 
 
 def mark_actioned(account_id: str, db_path=DEFAULT_DB_PATH) -> None:
-    """Mark one account as actioned today."""
+    """Move one account to "Actioned" today (from "New" or "Follow-up")."""
     today = _today()
     with closing(_connect(db_path)) as conn:
         conn.execute(
             "UPDATE account_state SET status = ?, actioned_date = ?, "
             "last_updated_date = ? WHERE account_id = ?",
-            (STATUS_ACTIONED, today, today, account_id),
+            (STAGE_ACTIONED, today, today, account_id),
         )
         conn.commit()
 
 
-def get_pending(db_path=DEFAULT_DB_PATH) -> pd.DataFrame:
-    """Return all accounts currently in "pending" status."""
+def undo_action(account_id: str, db_path=DEFAULT_DB_PATH) -> None:
+    """Revert one account a single stage backward: Follow-up -> Actioned,
+    Actioned -> New. No-op for an account already at "New" or not found."""
+    today = _today()
+    with closing(_connect(db_path)) as conn:
+        cur = conn.execute(
+            "SELECT status, touch_count FROM account_state WHERE account_id = ?",
+            (account_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return
+
+        status, touch_count = row
+        target = _UNDO_TARGET.get(status)
+        if target is None:
+            return
+
+        if target == STAGE_NEW:
+            conn.execute(
+                "UPDATE account_state SET status = ?, actioned_date = NULL, "
+                "last_updated_date = ? WHERE account_id = ?",
+                (target, today, account_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE account_state SET status = ?, touch_count = ?, "
+                "last_updated_date = ? WHERE account_id = ?",
+                (target, max(0, touch_count - 1), today, account_id),
+            )
+        conn.commit()
+
+
+def get_by_stage(stage: str, db_path=DEFAULT_DB_PATH) -> pd.DataFrame:
+    """Return all accounts currently at the given contact stage."""
     with closing(_connect(db_path)) as conn:
         return pd.read_sql_query(
             "SELECT * FROM account_state WHERE status = ? ORDER BY account_id",
             conn,
-            params=(STATUS_PENDING,),
+            params=(stage,),
         )
 
 
 def get_state_summary(db_path=DEFAULT_DB_PATH) -> dict:
-    """Return {"total", "pending", "actioned"} counts for the state DB."""
+    """Return {"total", "new", "actioned", "follow_up"} counts for the state DB."""
     with closing(_connect(db_path)) as conn:
         cur = conn.execute(
             "SELECT status, COUNT(*) FROM account_state GROUP BY status"
         )
         counts = dict(cur.fetchall())
 
-    pending = counts.get(STATUS_PENDING, 0)
-    actioned = counts.get(STATUS_ACTIONED, 0)
-    return {"total": pending + actioned, "pending": pending, "actioned": actioned}
+    new = counts.get(STAGE_NEW, 0)
+    actioned = counts.get(STAGE_ACTIONED, 0)
+    follow_up = counts.get(STAGE_FOLLOW_UP, 0)
+    return {
+        "total": new + actioned + follow_up,
+        "new": new,
+        "actioned": actioned,
+        "follow_up": follow_up,
+    }
 
 
 if __name__ == "__main__":
@@ -203,6 +279,7 @@ if __name__ == "__main__":
     print("STATE SUMMARY")
     print("=" * 60)
     print(f"Total tracked accounts : {summary['total']}")
-    print(f"Pending                : {summary['pending']}")
-    print(f"Actioned               : {summary['actioned']}")
+    print(f"New                     : {summary['new']}")
+    print(f"Actioned                : {summary['actioned']}")
+    print(f"Follow-up               : {summary['follow_up']}")
     print("=" * 60)
