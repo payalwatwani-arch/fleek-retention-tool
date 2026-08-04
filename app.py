@@ -14,6 +14,7 @@ import html
 import re
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
 from src.pipeline import run_pipeline
@@ -24,7 +25,9 @@ from src.state import (
     STAGE_ACTIONED,
     STAGE_FOLLOW_UP,
     STAGE_NEW,
+    add_note,
     get_by_stage,
+    get_notes,
     mark_actioned,
     undo_action,
 )
@@ -147,6 +150,9 @@ def _stage_accounts(df, stage: str):
 
 
 def _render_card(row) -> None:
+    """One Kanban card: a compact summary that navigates to the account's
+    dedicated Account Overview page when clicked, rather than expanding
+    inline (accounts_details() is what used to live here)."""
     account_id = row["account_id"]
     score, factors = compute_health_score(row)
     color = _score_color(score)
@@ -159,43 +165,102 @@ def _render_card(row) -> None:
     if status_line:
         label += f"  ·  {status_line}"
 
-    with st.expander(label):
-        st.caption(f"{row['ownership']} · {row['region']} · {row['buyer_persona']}")
+    with st.container(border=True):
+        st.markdown(label)
+        if st.button("View details →", key=f"view_{account_id}", use_container_width=True):
+            st.session_state.selected_account = account_id
+            st.rerun()
 
-        # Kanban columns are narrow, so a KPI-tile grid (st.metric) clips its
-        # values here — plain label/value markdown wraps instead of
-        # truncating, so the full numbers stay legible at card width.
-        trend_display = (
-            f"{row['gmv_trend_pct']:.0f}%" if row["has_trend_baseline"] else "No baseline"
-        )
-        account_numbers = [
-            ("GMV (6m)", f"${row['gmv_total_6m']:,.0f}"),
-            ("Orders (6m)", f"{row['orders_6m']:,.0f}"),
-            ("App active days", f"{row['app_active_days_6m']:.0f}"),
-            ("PDP views (6m)", f"{row['pdp_views_6m']:.0f}"),
-            ("Broker reliance", f"{row['broker_reliance_pct']:.0f}%"),
-            ("Bundle share", f"{row['bundle_gmv_share_pct']:.0f}%"),
-            ("GMV trend", trend_display),
-            ("Make an offer (6m)", f"{row['make_an_offer_6m']:.0f}"),
-        ]
-        left_col, right_col = st.columns(2)
-        for i, (num_label, num_value) in enumerate(account_numbers):
-            target_col = left_col if i % 2 == 0 else right_col
-            target_col.markdown(f"{num_label}: **{num_value}**")
 
-        st.markdown(f"**Health score: :{color}[{score}]**")
-        for factor in factors:
-            factor_arrow = "↑" if factor["direction"] == "up" else "↓"
-            factor_color = "green" if factor["impact"] == "positive" else "red"
-            st.markdown(f":{factor_color}[{factor_arrow}] {factor['label']}")
+def _account_with_state(df: pd.DataFrame, account_id: str):
+    """Look up one account by id, joined with its stage bookkeeping,
+    regardless of the Kanban board's current filters — used by the Account
+    Overview page, which should stay reachable even if a filter would have
+    hidden the card that linked to it. Returns None if not found."""
+    all_state = pd.concat(
+        [get_by_stage(stage, db_path=DEFAULT_DB_PATH) for stage in STAGES],
+        ignore_index=True,
+    )
+    merged = df.merge(
+        all_state[["account_id", "status", "touch_count", "actioned_date"]],
+        on="account_id",
+        how="inner",
+    )
+    match = merged[merged["account_id"] == account_id]
+    if match.empty:
+        return None
+    return match.iloc[0]
 
-        if row["is_at_risk"]:
-            st.warning(f"At risk: {row['at_risk_detail']}")
 
-        if row["action"] == NO_ACTION:
-            st.caption("No action needed.")
-            return
+def _render_stage_stepper(current_stage: str) -> None:
+    steps = []
+    for stage in STAGES:
+        if stage == current_stage:
+            steps.append(f":blue[**● {stage}**]")
+        else:
+            steps.append(f":gray[{stage}]")
+    st.markdown("&nbsp;&nbsp;→&nbsp;&nbsp;".join(steps))
 
+
+def _render_account_overview(row) -> None:
+    """The dedicated Account Overview page a Kanban card navigates to."""
+    account_id = row["account_id"]
+    score, factors = compute_health_score(row)
+    color = _score_color(score)
+    arrow = "↑" if (factors[0]["direction"] == "up" if factors else True) else "↓"
+
+    if st.button("← Back to Pipeline", key="back_to_pipeline"):
+        st.session_state.selected_account = None
+        st.rerun()
+
+    st.title(account_id)
+    st.markdown(f"## :{color}[{score}] {arrow}  Health Score")
+    st.caption(f"{row['ownership']} · {row['region']} · {row['buyer_persona']}")
+
+    _render_stage_stepper(row["status"])
+
+    st.markdown(" ".join(f"`{tag}`" for tag in _segment_tags(row)))
+    status_line = _status_line(row)
+    if status_line:
+        st.caption(status_line)
+
+    if row["is_at_risk"]:
+        st.warning(f"At risk: {row['at_risk_detail']}")
+
+    st.divider()
+    st.subheader("Account numbers")
+    trend_display = (
+        f"{row['gmv_trend_pct']:.0f}%" if row["has_trend_baseline"] else "No baseline"
+    )
+    account_numbers = [
+        ("Region", f"{row['region']}"),
+        ("Ownership", f"{row['ownership']}"),
+        ("GMV (6m)", f"${row['gmv_total_6m']:,.0f}"),
+        ("Orders (6m)", f"{row['orders_6m']:,.0f}"),
+        ("App active days", f"{row['app_active_days_6m']:.0f}"),
+        ("Broker reliance", f"{row['broker_reliance_pct']:.0f}%"),
+        ("PDP views (6m)", f"{row['pdp_views_6m']:.0f}"),
+        ("Bundle share", f"{row['bundle_gmv_share_pct']:.0f}%"),
+        ("GMV trend", trend_display),
+        ("Make an offer (6m)", f"{row['make_an_offer_6m']:.0f}"),
+    ]
+    left_col, right_col = st.columns(2)
+    for i, (num_label, num_value) in enumerate(account_numbers):
+        target_col = left_col if i % 2 == 0 else right_col
+        target_col.markdown(f"{num_label}: **{num_value}**")
+
+    st.divider()
+    st.subheader("Health score breakdown")
+    for factor in factors:
+        factor_arrow = "↑" if factor["direction"] == "up" else "↓"
+        factor_color = "green" if factor["impact"] == "positive" else "red"
+        st.markdown(f":{factor_color}[{factor_arrow}] {factor['label']}")
+
+    st.divider()
+    if row["action"] == NO_ACTION:
+        st.caption("No action needed.")
+    else:
+        st.subheader("Drafted outreach")
         variants = row["draft_variants"]
         st.write(f"**Action:** {row['action']}")
 
@@ -218,6 +283,28 @@ def _render_card(row) -> None:
             key=f"message_{account_id}_{tone}",
         )
 
+    st.divider()
+    st.subheader("Notes")
+    with st.form(key=f"note_form_{account_id}", clear_on_submit=True):
+        new_note = st.text_area("Add a note", key=f"new_note_{account_id}")
+        submitted = st.form_submit_button("Add note", key=f"submit_note_{account_id}")
+        if submitted and new_note.strip():
+            add_note(account_id, new_note, db_path=DEFAULT_DB_PATH)
+            st.rerun()
+
+    notes = get_notes(account_id, db_path=DEFAULT_DB_PATH)
+    if notes:
+        for note in notes:
+            st.markdown(f"**{note['timestamp']}**")
+            st.write(note["text"])
+    else:
+        st.caption("No notes yet.")
+
+    # "No action needed" accounts are driven purely by the pipeline's own
+    # resolution (segment/action moving them to a neutral state) -- same as
+    # the old inline card, there's no manual Mark as Actioned/Undo for them.
+    if row["action"] != NO_ACTION:
+        st.divider()
         stage = row["status"]
         button_col1, button_col2 = st.columns(2)
         if stage in (STAGE_NEW, STAGE_FOLLOW_UP):
@@ -290,37 +377,47 @@ if view == "Overview":
 # VIEW 2 — Pipeline (Kanban board, by contact stage)
 # ---------------------------------------------------------------------
 elif view == "Pipeline":
-    st.header("Pipeline")
+    selected_account = st.session_state.get("selected_account")
 
-    icon_col, region_col, persona_col, ownership_col, at_risk_col = st.columns(
-        [1.1, 2, 2, 2, 1.5]
-    )
-    with icon_col:
-        st.markdown("&nbsp;")
-        st.markdown("🔍 **Filter by**")
-    with region_col:
-        region = st.selectbox(
-            "Region", ["All"] + sorted(df["region"].dropna().unique().tolist())
+    if selected_account:
+        account_row = _account_with_state(df, selected_account)
+        if account_row is None:
+            st.session_state.selected_account = None
+            st.rerun()
+        else:
+            _render_account_overview(account_row)
+    else:
+        st.header("Pipeline")
+
+        icon_col, region_col, persona_col, ownership_col, at_risk_col = st.columns(
+            [1.1, 2, 2, 2, 1.5]
         )
-    with persona_col:
-        persona = st.selectbox(
-            "Buyer persona", ["All"] + sorted(df["buyer_persona"].dropna().unique().tolist())
-        )
-    with ownership_col:
-        ownership = st.selectbox("Ownership", ["All", ACCOUNT_MANAGED, SELF_SERVE])
-    with at_risk_col:
-        st.markdown("&nbsp;")
-        at_risk_only = st.checkbox("At-risk only")
+        with icon_col:
+            st.markdown("&nbsp;")
+            st.markdown("🔍 **Filter by**")
+        with region_col:
+            region = st.selectbox(
+                "Region", ["All"] + sorted(df["region"].dropna().unique().tolist())
+            )
+        with persona_col:
+            persona = st.selectbox(
+                "Buyer persona", ["All"] + sorted(df["buyer_persona"].dropna().unique().tolist())
+            )
+        with ownership_col:
+            ownership = st.selectbox("Ownership", ["All", ACCOUNT_MANAGED, SELF_SERVE])
+        with at_risk_col:
+            st.markdown("&nbsp;")
+            at_risk_only = st.checkbox("At-risk only")
 
-    filtered_df = _apply_filters(df, region, persona, ownership, at_risk_only)
+        filtered_df = _apply_filters(df, region, persona, ownership, at_risk_only)
 
-    board_columns = st.columns(len(STAGES))
-    for board_col, stage in zip(board_columns, STAGES):
-        with board_col:
-            stage_df = _stage_accounts(filtered_df, stage)
-            st.markdown(f"**{stage} ({len(stage_df)})**")
-            for _, row in stage_df.iterrows():
-                _render_card(row)
+        board_columns = st.columns(len(STAGES))
+        for board_col, stage in zip(board_columns, STAGES):
+            with board_col:
+                stage_df = _stage_accounts(filtered_df, stage)
+                st.markdown(f"**{stage} ({len(stage_df)})**")
+                for _, row in stage_df.iterrows():
+                    _render_card(row)
 
 # ---------------------------------------------------------------------
 # VIEW 3 — Batch ingestion

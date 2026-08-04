@@ -14,7 +14,9 @@ from src.state import (
     STAGE_ACTIONED,
     STAGE_FOLLOW_UP,
     STAGE_NEW,
+    add_note,
     get_by_stage,
+    get_notes,
     get_state_summary,
     mark_actioned,
     sync_state,
@@ -309,3 +311,81 @@ def test_undo_action_on_unknown_account_is_a_no_op(db_path):
         "actioned": 0,
         "follow_up": 0,
     }
+
+
+# ---------------------------------------------------------------------
+# Notes
+# ---------------------------------------------------------------------
+def test_get_notes_on_account_with_no_notes_is_empty(db_path):
+    df = make_df(make_row("ACC-001", "Broker-Reliant", "Self-Serve Nudge"))
+    sync_state(df, db_path=db_path)
+
+    assert get_notes("ACC-001", db_path=db_path) == []
+
+
+def test_add_note_then_get_notes_returns_it(db_path):
+    df = make_df(make_row("ACC-001", "Broker-Reliant", "Self-Serve Nudge"))
+    sync_state(df, db_path=db_path)
+
+    add_note("ACC-001", "Called the AM, no answer.", db_path=db_path)
+
+    notes = get_notes("ACC-001", db_path=db_path)
+    assert len(notes) == 1
+    assert notes[0]["text"] == "Called the AM, no answer."
+    assert notes[0]["timestamp"]
+
+
+def test_multiple_notes_accumulate_most_recent_first(db_path):
+    df = make_df(make_row("ACC-001", "Broker-Reliant", "Self-Serve Nudge"))
+    sync_state(df, db_path=db_path)
+
+    add_note("ACC-001", "First note", db_path=db_path)
+    add_note("ACC-001", "Second note", db_path=db_path)
+    add_note("ACC-001", "Third note", db_path=db_path)
+
+    notes = get_notes("ACC-001", db_path=db_path)
+    assert [n["text"] for n in notes] == ["Third note", "Second note", "First note"]
+
+
+def test_notes_are_isolated_per_account(db_path):
+    df = make_df(
+        make_row("ACC-001", "Broker-Reliant", "Self-Serve Nudge"),
+        make_row("ACC-002", "Growth Headroom", "Bundle nudge"),
+    )
+    sync_state(df, db_path=db_path)
+
+    add_note("ACC-001", "Note for 001", db_path=db_path)
+    add_note("ACC-002", "Note for 002", db_path=db_path)
+
+    assert [n["text"] for n in get_notes("ACC-001", db_path=db_path)] == ["Note for 001"]
+    assert [n["text"] for n in get_notes("ACC-002", db_path=db_path)] == ["Note for 002"]
+
+
+def test_add_note_on_unknown_account_is_a_no_op(db_path):
+    # Should not raise, even though the account was never synced.
+    add_note("ACC-999", "Unreachable account", db_path=db_path)
+    assert get_notes("ACC-999", db_path=db_path) == []
+
+
+def test_add_note_with_blank_text_is_a_no_op(db_path):
+    df = make_df(make_row("ACC-001", "Broker-Reliant", "Self-Serve Nudge"))
+    sync_state(df, db_path=db_path)
+
+    add_note("ACC-001", "   ", db_path=db_path)
+
+    assert get_notes("ACC-001", db_path=db_path) == []
+
+
+def test_notes_survive_sync_state_reruns(db_path):
+    df = make_df(make_row("ACC-001", "Broker-Reliant", "Self-Serve Nudge"))
+    sync_state(df, db_path=db_path)
+    add_note("ACC-001", "A note before a rerun", db_path=db_path)
+
+    # Rerunning sync_state on unchanged data leaves the row untouched, and
+    # even on a changed-but-still-New row the notes column isn't part of
+    # what gets overwritten.
+    sync_state(df, db_path=db_path)
+
+    assert [n["text"] for n in get_notes("ACC-001", db_path=db_path)] == [
+        "A note before a rerun"
+    ]

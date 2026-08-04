@@ -26,9 +26,10 @@ Run directly to print the current state summary (from the project root):
 from __future__ import annotations
 
 import hashlib
+import json
 import sqlite3
 from contextlib import closing
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -78,7 +79,8 @@ CREATE TABLE IF NOT EXISTS account_state (
   touch_count INTEGER NOT NULL DEFAULT 0,
   actioned_date TEXT,
   first_seen_date TEXT NOT NULL,
-  last_updated_date TEXT NOT NULL
+  last_updated_date TEXT NOT NULL,
+  notes TEXT
 );
 """
 
@@ -88,6 +90,13 @@ def _connect(db_path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.execute(_SCHEMA)
+    # `notes` was added after the original table shipped, so existing DBs
+    # need a migration — CREATE TABLE IF NOT EXISTS alone won't add it.
+    try:
+        conn.execute("ALTER TABLE account_state ADD COLUMN notes TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
     return conn
 
 
@@ -242,6 +251,46 @@ def undo_action(account_id: str, db_path=DEFAULT_DB_PATH) -> None:
                 (target, max(0, touch_count - 1), today, account_id),
             )
         conn.commit()
+
+
+def add_note(account_id: str, note_text: str, db_path=DEFAULT_DB_PATH) -> None:
+    """Append a new timestamped note for one account. Notes accumulate (the
+    `notes` column holds a JSON list of {"timestamp", "text"} entries) rather
+    than overwrite. No-op if the account isn't in the state DB."""
+    note_text = note_text.strip()
+    if not note_text:
+        return
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    with closing(_connect(db_path)) as conn:
+        cur = conn.execute(
+            "SELECT notes FROM account_state WHERE account_id = ?", (account_id,)
+        )
+        row = cur.fetchone()
+        if row is None:
+            return
+
+        notes = json.loads(row[0]) if row[0] else []
+        notes.append({"timestamp": timestamp, "text": note_text})
+        conn.execute(
+            "UPDATE account_state SET notes = ? WHERE account_id = ?",
+            (json.dumps(notes), account_id),
+        )
+        conn.commit()
+
+
+def get_notes(account_id: str, db_path=DEFAULT_DB_PATH) -> list[dict]:
+    """Return this account's notes as a list of {"timestamp", "text"} dicts,
+    most recent first. Empty list if there are none (or the account isn't
+    in the state DB)."""
+    with closing(_connect(db_path)) as conn:
+        cur = conn.execute(
+            "SELECT notes FROM account_state WHERE account_id = ?", (account_id,)
+        )
+        row = cur.fetchone()
+
+    if row is None or not row[0]:
+        return []
+    return list(reversed(json.loads(row[0])))
 
 
 def get_by_stage(stage: str, db_path=DEFAULT_DB_PATH) -> pd.DataFrame:
