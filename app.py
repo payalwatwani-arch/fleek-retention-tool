@@ -34,6 +34,7 @@ from src.state import (
 
 WORKBOOK_PATH = Path("data/raw/portfolio.xlsx")
 BATCH_UPLOAD_PATH = Path("data/raw/batch_upload.xlsx")
+LOGO_PATH = Path(__file__).parent / "static" / "fleek_logo.png"
 
 st.set_page_config(page_title="Fleek Retention Dashboard", layout="wide")
 
@@ -45,13 +46,20 @@ st.set_page_config(page_title="Fleek Retention Dashboard", layout="wide")
 # ---------------------------------------------------------------------
 THEME_CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 html, body, [class*="css"] {
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: 'Inter', sans-serif;
+    font-weight: 400;
 }
-h1, h2, h3 {
-    font-family: 'Archivo Black', sans-serif !important;
+h1 {
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.01em;
+}
+h2, h3 {
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 600 !important;
     letter-spacing: 0.01em;
 }
 
@@ -61,7 +69,7 @@ h1, h2, h3 {
     padding: 2px 10px;
     border-radius: 12px;
     font-size: 0.75rem;
-    font-weight: 600;
+    font-weight: 500;
     margin-right: 4px;
 }
 .tag-sage    { background: #E4EDE5; color: #3F5B43; border: 1px solid #6B8F71; }
@@ -605,6 +613,7 @@ if "df" not in st.session_state:
 df = st.session_state.df
 
 st.title("Fleek Retention Engine")
+st.sidebar.image(str(LOGO_PATH), width=140)
 view = st.sidebar.radio(
     "View", ["Overview", "Pipeline", "Batch Ingestion"]
 )
