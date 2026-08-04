@@ -128,9 +128,9 @@ def test_card_shows_single_segment_tag_when_not_at_risk(app):
     row = _first_account(df, lambda d: d["is_at_risk"] == False)  # noqa: E712
     card = _card_markdown(at, row["account_id"])
 
-    assert f"`{row['segment']}`" in card
+    assert f">{row['segment']}</span>" in card
     if row["at_risk_detail"] is not None:
-        assert f"`{row['at_risk_detail']}`" not in card
+        assert f">{row['at_risk_detail']}</span>" not in card
 
 
 def test_card_shows_two_tags_when_at_risk_detail_differs_from_segment(app):
@@ -143,8 +143,8 @@ def test_card_shows_two_tags_when_at_risk_detail_differs_from_segment(app):
     )
     card = _card_markdown(at, row["account_id"])
 
-    assert f"`{row['segment']}`" in card
-    assert f"`{row['at_risk_detail']}`" in card
+    assert f">{row['segment']}</span>" in card
+    assert f">{row['at_risk_detail']}</span>" in card
 
 
 def test_card_omits_duplicate_tag_when_at_risk_detail_equals_segment(app):
@@ -157,7 +157,7 @@ def test_card_omits_duplicate_tag_when_at_risk_detail_equals_segment(app):
     )
     card = _card_markdown(at, row["account_id"])
 
-    assert card.count(f"`{row['segment']}`") == 1
+    assert card.count(f">{row['segment']}</span>") == 1
 
 
 def test_new_account_status_line_is_blank(app):
@@ -214,8 +214,12 @@ def test_clicking_a_card_opens_correct_accounts_overview_page(app):
     markdown_values = {m.value for m in at.markdown}
     for factor in expected_factors:
         arrow = "↑" if factor["direction"] == "up" else "↓"
-        color = "green" if factor["impact"] == "positive" else "red"
-        assert f":{color}[{arrow}] {factor['label']}" in markdown_values
+        color = "sage" if factor["impact"] == "positive" else "rust"
+        expected = (
+            f'<span class="badge-inline badge-inline-{color}">{arrow}</span> '
+            f'{factor["label"]}'
+        )
+        assert expected in markdown_values
 
 
 def test_account_overview_shows_full_account_numbers_grid(app):
