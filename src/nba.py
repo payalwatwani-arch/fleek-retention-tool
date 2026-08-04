@@ -316,31 +316,38 @@ def _draft_chat_nudge(row) -> list[dict[str, str]]:
 
 def _draft_video_call_nudge(row) -> list[dict[str, str]]:
     label = _account_label(row)
+    calls = row.get("video_call_requests")
+    calls_str = "an unclear number of" if calls is None or pd.isna(calls) else f"{calls:.0f}"
     return [
         {
             "tone": "Direct",
-            "subject": "15 minutes on video?",
+            "subject": "Try Virtual Handpick with a supplier",
             "message": (
-                f"Hi {label} team, you've been ordering steadily but haven't requested a video call with us yet "
-                f"(0 so far). Grab 15 minutes if you'd like a walkthrough or want to talk through your account."
+                f"Hi {label} team, you've been ordering steadily but haven't tried Virtual Handpick yet "
+                f"({calls_str} video calls so far). It's a live video call directly with the supplier, so you "
+                f"can curate and handpick your bundle together in real time. Grab 15 minutes with a supplier and "
+                f"give it a try."
             ),
         },
         {
             "tone": "Warm",
-            "subject": "Want to hop on a quick video call?",
+            "subject": "Curate a bundle live with a supplier",
             "message": (
-                f"Hi {label} team, we noticed you've been ordering steadily but haven't yet requested a video "
-                f"call with us (0 so far). We'd love to put a face to the account — want to grab 15 minutes for "
-                f"a walkthrough or just to chat?"
+                f"Hi {label} team, we noticed you've been ordering steadily but haven't yet tried Virtual "
+                f"Handpick ({calls_str} video calls so far). It's a live video call directly with the supplier — "
+                f"you walk through moodboards together and handpick your own bundle in real time. Want to grab "
+                f"15 minutes with a supplier and give it a try?"
             ),
         },
         {
             "tone": "Formal",
-            "subject": "Offering a video consultation",
+            "subject": "Introducing Virtual Handpick",
             "message": (
                 f"Dear {label} team, we have noticed steady ordering activity on your account, though you have "
-                f"not yet requested a video call with us (0 to date). We would welcome the opportunity to "
-                f"arrange a 15-minute video consultation at your convenience."
+                f"not yet made use of Virtual Handpick ({calls_str} video calls to date). Virtual Handpick is a "
+                f"live video call directly with a supplier, allowing you to curate and handpick your bundle "
+                f"together in real time. We would welcome the opportunity to arrange a 15-minute session with a "
+                f"supplier at your convenience."
             ),
         },
     ]

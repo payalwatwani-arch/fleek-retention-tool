@@ -256,17 +256,19 @@ def _call_script_chat_nudge(row) -> dict[str, str]:
 
 
 def _call_script_video_call_nudge(row) -> dict[str, str]:
+    calls = row.get("video_call_requests")
+    calls_str = "an unclear number of" if calls is None or pd.isna(calls) else f"{calls:.0f}"
     return {
         "opening": (
-            "Mention: they've been ordering steadily but haven't done a video call with us "
-            "yet (0 so far)."
+            f"Mention: they've been ordering steadily but haven't tried Virtual Handpick yet "
+            f"({calls_str} video calls so far)."
         ),
         "key_point": (
-            "A quick 15-minute video call is a chance for a live walkthrough or to talk "
-            "through their account."
+            "Virtual Handpick is a live video call directly with a supplier — they curate and "
+            "handpick their own bundle together in real time using moodboards, not a call with us."
         ),
-        "pushback": "If they're pressed for time, offer to keep it to 15 minutes or less.",
-        "close": "Offer to grab 15 minutes on video this week.",
+        "pushback": "If they're pressed for time, offer to keep the supplier session to 15 minutes or less.",
+        "close": "Offer to set up 15 minutes with a supplier on Virtual Handpick this week.",
     }
 
 
