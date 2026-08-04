@@ -17,6 +17,7 @@ from pathlib import Path
 import streamlit as st
 
 from src.pipeline import run_pipeline
+from src.scoring import compute_health_score
 from src.state import DEFAULT_DB_PATH, get_pending, mark_actioned
 
 WORKBOOK_PATH = Path("data/raw/portfolio.xlsx")
@@ -72,6 +73,122 @@ def _run_and_store(filepath) -> None:
 
 
 # ---------------------------------------------------------------------
+# Pipeline board (Kanban) — columns, per-card metric, and health badge
+# coloring. Each column pulls a single real number that's the most
+# relevant signal for that segment, matching the CRM pipeline pattern of
+# one glanceable metric per card rather than a dense table row.
+# ---------------------------------------------------------------------
+PIPELINE_COLUMNS = [
+    {
+        "title": "Self-Serve Nudge",
+        "filter": lambda d: d["segment"] == "Broker-Reliant",
+        "metric": lambda r: f"{r['broker_reliance_pct']:.0f}% reliant",
+    },
+    {
+        "title": "Trending",
+        "filter": lambda d: d["segment"] == "Growth Headroom",
+        "metric": lambda r: f"{r['pdp_views_6m']:.0f} PDP views (6m)",
+    },
+    {
+        "title": "At Risk",
+        "filter": lambda d: d["segment"] == "Declining",
+        "metric": lambda r: f"{r['gmv_trend_pct']:.0f}% trend",
+    },
+    {
+        "title": "Gone Cold",
+        "filter": lambda d: d["segment"] == "Already Gone",
+        "metric": lambda r: f"${r['gmv_total_6m']:,.0f} GMV (6m)",
+    },
+    {
+        "title": "Neutral",
+        "filter": lambda d: d["segment"].isin(["Healthy AM", "Self-Serve, No Headroom"]),
+        "metric": lambda r: f"${r['gmv_total_6m']:,.0f} GMV (6m)",
+    },
+]
+
+
+def _score_color(score: int) -> str:
+    if score >= 70:
+        return "green"
+    if score >= 40:
+        return "orange"
+    return "red"
+
+
+def _render_card(row, metric_fn, pending_ids: set) -> None:
+    account_id = row["account_id"]
+    score, factors = compute_health_score(row)
+    color = _score_color(score)
+
+    label = f"**{account_id}**  ·  :{color}[{score}]  ·  {metric_fn(row)}"
+    with st.expander(label):
+        st.caption(f"{row['ownership']} · {row['region']} · segment: {row['segment']}")
+
+        # Kanban columns are narrow, so a KPI-tile grid (st.metric) clips its
+        # values here — plain label/value markdown wraps instead of
+        # truncating, so the full numbers stay legible at card width.
+        trend_display = (
+            f"{row['gmv_trend_pct']:.0f}%" if row["has_trend_baseline"] else "No baseline"
+        )
+        account_numbers = [
+            ("GMV (6m)", f"${row['gmv_total_6m']:,.0f}"),
+            ("Orders (6m)", f"{row['orders_6m']:,.0f}"),
+            ("App active days", f"{row['app_active_days_6m']:.0f}"),
+            ("PDP views (6m)", f"{row['pdp_views_6m']:.0f}"),
+            ("Broker reliance", f"{row['broker_reliance_pct']:.0f}%"),
+            ("Bundle share", f"{row['bundle_gmv_share_pct']:.0f}%"),
+            ("GMV trend", trend_display),
+            ("Make an offer (6m)", f"{row['make_an_offer_6m']:.0f}"),
+        ]
+        left_col, right_col = st.columns(2)
+        for i, (num_label, num_value) in enumerate(account_numbers):
+            target_col = left_col if i % 2 == 0 else right_col
+            target_col.markdown(f"{num_label}: **{num_value}**")
+
+        st.markdown(f"**Health score: :{color}[{score}]**")
+        for factor in factors:
+            arrow = "↑" if factor["direction"] == "up" else "↓"
+            factor_color = "green" if factor["impact"] == "positive" else "red"
+            st.markdown(f":{factor_color}[{arrow}] {factor['label']}")
+
+        if row["is_at_risk"]:
+            st.warning(f"At risk: {row['at_risk_detail']}")
+
+        variants = row["draft_variants"]
+        if not variants:
+            st.caption("No action needed for this account.")
+            return
+
+        st.write(f"**Action:** {row['action']}")
+
+        variants_by_tone = {variant["tone"]: variant for variant in variants}
+        tone = st.radio(
+            "Tone",
+            list(variants_by_tone),
+            key=f"tone_{account_id}",
+            horizontal=True,
+        )
+        variant = variants_by_tone[tone]
+
+        st.text_input(
+            "Subject", value=variant["subject"], key=f"subject_{account_id}_{tone}"
+        )
+        st.text_area(
+            "Message",
+            value=variant["message"],
+            height=250,
+            key=f"message_{account_id}_{tone}",
+        )
+
+        if account_id in pending_ids:
+            if st.button("Mark as actioned", key=f"mark_actioned_{account_id}"):
+                mark_actioned(account_id, db_path=DEFAULT_DB_PATH)
+                st.rerun()
+        else:
+            st.success("Actioned")
+
+
+# ---------------------------------------------------------------------
 # SETUP: load the portfolio workbook once, keep the result in session
 # state so we don't re-run the pipeline on every click.
 # ---------------------------------------------------------------------
@@ -97,7 +214,7 @@ df = st.session_state.df
 
 st.title("Fleek Retention Dashboard")
 view = st.sidebar.radio(
-    "View", ["Overview", "Segmentation", "Action Center", "Batch Ingestion"]
+    "View", ["Overview", "Pipeline", "Batch Ingestion"]
 )
 
 # ---------------------------------------------------------------------
@@ -127,102 +244,28 @@ if view == "Overview":
     )
 
 # ---------------------------------------------------------------------
-# VIEW 2 — Segmentation
+# VIEW 2 — Pipeline (Kanban board)
 # ---------------------------------------------------------------------
-elif view == "Segmentation":
-    st.header("Segmentation")
-
-    fcol1, fcol2, fcol3, fcol4, fcol5 = st.columns(5)
-    segment_filter = fcol1.multiselect("Segment", sorted(df["segment"].dropna().unique()))
-    action_filter = fcol2.multiselect("Action", sorted(df["action"].dropna().unique()))
-    ownership_filter = fcol3.multiselect("Ownership", sorted(df["ownership"].dropna().unique()))
-    region_filter = fcol4.multiselect("Region", sorted(df["region"].dropna().unique()))
-    at_risk_filter = fcol5.selectbox("At risk", ["All", "At risk only", "Not at risk"])
-
-    filtered = df
-    if segment_filter:
-        filtered = filtered[filtered["segment"].isin(segment_filter)]
-    if action_filter:
-        filtered = filtered[filtered["action"].isin(action_filter)]
-    if ownership_filter:
-        filtered = filtered[filtered["ownership"].isin(ownership_filter)]
-    if region_filter:
-        filtered = filtered[filtered["region"].isin(region_filter)]
-    if at_risk_filter == "At risk only":
-        filtered = filtered[filtered["is_at_risk"] == True]  # noqa: E712
-    elif at_risk_filter == "Not at risk":
-        filtered = filtered[filtered["is_at_risk"] == False]  # noqa: E712
-
-    st.caption(f"{len(filtered)} of {len(df)} accounts")
-    st.dataframe(
-        filtered[
-            ["account_id", "segment", "action", "is_at_risk", "gmv_total_6m", "broker_reliance_pct"]
-        ],
-        width="stretch",
-        hide_index=True,
-    )
-
-# ---------------------------------------------------------------------
-# VIEW 3 — Action Center
-# ---------------------------------------------------------------------
-elif view == "Action Center":
-    st.header("Action Center")
+elif view == "Pipeline":
+    st.header("Pipeline")
 
     # Read straight from the state DB (not session_state) so a
     # mark_actioned() call is reflected immediately, with no pipeline rerun.
     pending = get_pending(db_path=DEFAULT_DB_PATH)
-    pending_ids = pending.loc[pending["last_action"] != "None", "account_id"]
-    queue = df[df["account_id"].isin(pending_ids)].reset_index(drop=True)
+    pending_ids = set(pending["account_id"])
 
-    if queue.empty:
-        st.success("All caught up — no pending actions.")
-    else:
-        st.caption(f"{len(queue)} account(s) awaiting action")
-        selected_id = st.selectbox("Select an account", queue["account_id"])
-        row = queue[queue["account_id"] == selected_id].iloc[0]
-
-        mcol1, mcol2, mcol3 = st.columns(3)
-        mcol1.metric("GMV (6m)", f"${row['gmv_total_6m']:,.0f}")
-        mcol2.metric("Broker reliance", f"{row['broker_reliance_pct']:.0f}%")
-        mcol3.metric("Segment", row["segment"])
-
-        st.write(f"**Action:** {row['action']}")
-        if row["is_at_risk"]:
-            st.warning(f"At risk: {row['at_risk_detail']}")
-
-        variants_by_tone = {variant["tone"]: variant for variant in row["draft_variants"]}
-        tone = st.radio(
-            "Tone",
-            list(variants_by_tone),
-            key=f"tone_{selected_id}",
-            horizontal=True,
-        )
-        variant = variants_by_tone[tone]
-
-        st.text_input(
-            "Subject", value=variant["subject"], key=f"subject_{selected_id}_{tone}"
-        )
-        st.text_area(
-            "Message",
-            value=variant["message"],
-            height=250,
-            key=f"message_{selected_id}_{tone}",
-        )
-
-        # WhatsApp preview — disabled while styling is revisited; helpers
-        # (_format_for_whatsapp, _whatsapp_preview_html) stay defined above.
-        # st.markdown("**WhatsApp preview**")
-        # whatsapp_message = _format_for_whatsapp(variant["message"])
-        # st.markdown(_whatsapp_preview_html(whatsapp_message), unsafe_allow_html=True)
-        # st.caption("Copy for WhatsApp:")
-        # st.code(whatsapp_message, language=None)
-
-        if st.button("Mark as actioned", key=f"mark_actioned_{selected_id}"):
-            mark_actioned(selected_id, db_path=DEFAULT_DB_PATH)
-            st.rerun()
+    board_columns = st.columns(len(PIPELINE_COLUMNS))
+    for board_col, column_def in zip(board_columns, PIPELINE_COLUMNS):
+        with board_col:
+            column_df = df[column_def["filter"](df)]
+            total_gmv = column_df["gmv_total_6m"].sum()
+            st.markdown(f"**{column_def['title']} ({len(column_df)})**")
+            st.caption(f"${total_gmv:,.0f} total GMV")
+            for _, row in column_df.iterrows():
+                _render_card(row, column_def["metric"], pending_ids)
 
 # ---------------------------------------------------------------------
-# VIEW 4 — Batch ingestion
+# VIEW 3 — Batch ingestion
 # ---------------------------------------------------------------------
 elif view == "Batch Ingestion":
     st.header("Batch Ingestion")
