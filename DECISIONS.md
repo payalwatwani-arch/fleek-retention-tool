@@ -115,3 +115,14 @@ Segmentation is effectively free (~0.02s) since it's vectorized pandas.
 Drafting and state sync are the real cost drivers, since both currently loop
 row-by-row in Python — the next optimization, if the book grew further, would
 be vectorizing those the same way segmentation already is.
+
+## Build-a-Bundle nudge — why the count is 2, not 8
+
+8 of 90 self-serve accounts hand-pick more than they buy bundles
+(handpick_orders > bundle_orders). But Build-a-Bundle nudge only applies
+within Growth Headroom accounts (high browsing, low spend) — verified only
+2 of the 23 headroom accounts also hand-pick more than bundle. The other 6
+hand-pick-heavy accounts aren't short on spend, so they correctly get no
+growth nudge at all. The two signals (hand-pick preference, growth
+headroom) are related but distinct — not every hand-pick-heavy account
+needs a nudge.
