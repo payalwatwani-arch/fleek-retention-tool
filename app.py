@@ -400,7 +400,8 @@ def _stage_accounts(df, stage: str):
 def _render_card(row) -> None:
     """One Kanban card: a compact summary that navigates to the account's
     dedicated Account Overview page when clicked, rather than expanding
-    inline (accounts_details() is what used to live here)."""
+    inline (accounts_details() is what used to live here). Also carries a
+    selection checkbox so the card can be included in a bulk action."""
     account_id = row["account_id"]
     score, factors = compute_health_score(row)
     arrow = "↑" if (factors[0]["direction"] == "up" if factors else True) else "↓"
@@ -412,10 +413,123 @@ def _render_card(row) -> None:
     if status_line:
         label += f"  ·  {status_line}"
 
+    selected_ids = st.session_state.selected_account_ids
+
     with st.container(border=True):
-        st.markdown(label, unsafe_allow_html=True)
+        checkbox_col, label_col = st.columns([1, 9])
+        with checkbox_col:
+            checked = st.checkbox(
+                "Select",
+                value=account_id in selected_ids,
+                key=f"select_{account_id}",
+                label_visibility="collapsed",
+            )
+        with label_col:
+            st.markdown(label, unsafe_allow_html=True)
+
+        if checked:
+            selected_ids.add(account_id)
+        else:
+            selected_ids.discard(account_id)
+
         if st.button("View details →", key=f"view_{account_id}", use_container_width=True):
             st.session_state.selected_account = account_id
+            _clear_selection()
+            st.session_state.show_bulk_preview = False
+            st.rerun()
+
+
+def _clear_selection() -> None:
+    """Clear selected_account_ids and queue the underlying checkbox widgets
+    to be unchecked on the *next* run. A keyed checkbox's own session_state
+    value persists across reruns regardless of the `value=` argument, so
+    clearing the tracking set alone would leave the boxes checked and have
+    them silently repopulate the set on the next render. Their widget state
+    can't be overwritten this run either, since they're already instantiated
+    by the time a bulk-action button click is handled — so the actual reset
+    happens in `_apply_pending_checkbox_clear`, called before any checkboxes
+    are created on the next run."""
+    st.session_state.pending_checkbox_clear = set(st.session_state.selected_account_ids)
+    st.session_state.selected_account_ids = set()
+
+
+def _apply_pending_checkbox_clear() -> None:
+    """Uncheck any checkboxes queued by `_clear_selection` on a prior run.
+    Must run before the board (re)creates its checkbox widgets."""
+    for account_id in st.session_state.get("pending_checkbox_clear", ()):
+        st.session_state[f"select_{account_id}"] = False
+    st.session_state.pending_checkbox_clear = set()
+
+
+def _selected_rows(df: pd.DataFrame, account_ids: set):
+    """Rows (joined with stage bookkeeping) for a set of selected account
+    ids, regardless of stage or the board's current filters."""
+    all_state = pd.concat(
+        [get_by_stage(stage, db_path=DEFAULT_DB_PATH) for stage in STAGES],
+        ignore_index=True,
+    )
+    merged = df.merge(
+        all_state[["account_id", "status", "touch_count", "actioned_date"]],
+        on="account_id",
+        how="inner",
+    )
+    return merged[merged["account_id"].isin(account_ids)]
+
+
+def _render_bulk_actions(df: pd.DataFrame) -> None:
+    """Toolbar for the accounts currently selected via card checkboxes:
+    an instant bulk mark-as-actioned, and a preview-then-mark flow that
+    shows each selected account's own drafted message first."""
+    selected_ids = st.session_state.selected_account_ids
+    if not selected_ids:
+        return
+
+    st.divider()
+    count = len(selected_ids)
+    mark_col, preview_col = st.columns(2)
+
+    if mark_col.button(f"Mark {count} as Actioned", key="bulk_mark_actioned"):
+        for account_id in selected_ids:
+            mark_actioned(account_id, db_path=DEFAULT_DB_PATH)
+        st.success(f"{count} accounts marked as actioned")
+        _clear_selection()
+        st.rerun()
+
+    if preview_col.button(f"Generate messages for {count} selected", key="bulk_generate_messages"):
+        st.session_state.show_bulk_preview = True
+
+    if st.session_state.get("show_bulk_preview"):
+        st.subheader("Drafted messages for selected accounts")
+        preview_rows = _selected_rows(df, selected_ids)
+        for _, row in preview_rows.iterrows():
+            with st.container(border=True):
+                st.markdown(f"**{row['account_id']}**")
+                if row["action"] == NO_ACTION:
+                    st.caption("No action needed.")
+                    continue
+                variants_by_tone = {variant["tone"]: variant for variant in row["draft_variants"]}
+                variant = variants_by_tone.get("Direct", row["draft_variants"][0])
+                st.write(f"**Action:** {row['action']}")
+                st.text_input(
+                    "Subject",
+                    value=variant["subject"],
+                    key=f"bulk_subject_{row['account_id']}",
+                    disabled=True,
+                )
+                st.text_area(
+                    "Message",
+                    value=variant["message"],
+                    height=150,
+                    key=f"bulk_message_{row['account_id']}",
+                    disabled=True,
+                )
+
+        if st.button(f"Mark all {count} as actioned", key="bulk_mark_actioned_after_preview"):
+            for account_id in selected_ids:
+                mark_actioned(account_id, db_path=DEFAULT_DB_PATH)
+            st.success(f"{count} accounts marked as actioned")
+            _clear_selection()
+            st.session_state.show_bulk_preview = False
             st.rerun()
 
 
@@ -612,6 +726,11 @@ if "df" not in st.session_state:
 
 df = st.session_state.df
 
+if "selected_account_ids" not in st.session_state:
+    st.session_state.selected_account_ids = set()
+if "pending_checkbox_clear" not in st.session_state:
+    st.session_state.pending_checkbox_clear = set()
+
 st.title("Fleek Retention Engine")
 st.sidebar.image(str(LOGO_PATH), width=140)
 view = st.sidebar.radio(
@@ -683,6 +802,8 @@ elif view == "Pipeline":
 
         filtered_df = _apply_filters(df, region, persona, ownership, at_risk_only)
 
+        _apply_pending_checkbox_clear()
+
         board_columns = st.columns(len(STAGES))
         for board_col, stage in zip(board_columns, STAGES):
             with board_col:
@@ -690,6 +811,8 @@ elif view == "Pipeline":
                 st.markdown(f"**{stage} ({len(stage_df)})**")
                 for _, row in stage_df.iterrows():
                     _render_card(row)
+
+        _render_bulk_actions(df)
 
 # ---------------------------------------------------------------------
 # VIEW 3 — Batch ingestion
