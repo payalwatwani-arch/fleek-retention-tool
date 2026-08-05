@@ -135,6 +135,32 @@ where the tone shifts from "here's an opportunity" to "checking in
 directly," and where I'd start looking at whether a call, not another
 message, is the better next move.
 
+## Running it on a schedule
+
+`scheduled_run.py` is the unattended entry point: it runs the pipeline
+against the newest `.xlsx` file in `data/incoming/` (gitignored — drop the
+day's workbook there), reconciles it against the same state database the
+dashboard uses (`data/state/portfolio.db`), and writes a morning briefing
+to `data/briefings/briefing_{today's date}.md` (also gitignored). If
+`data/incoming/` is empty, it prints a message and exits cleanly — nothing
+to do until a new workbook shows up.
+
+To run it every morning at 8am via cron:
+
+```bash
+crontab -e
+```
+
+Add this line (adjust the path to wherever the repo lives):
+
+```
+0 8 * * * cd /path/to/fleek-retention-tool && /usr/bin/python3 scheduled_run.py >> data/briefings/cron.log 2>&1
+```
+
+The next time the dashboard is opened, the Overview view picks up that
+day's briefing file automatically if one exists, and falls back to
+generating the same briefing live otherwise.
+
 ## Known limitations
 
 - **No live send integration.** Email, Text, and Call tabs are all

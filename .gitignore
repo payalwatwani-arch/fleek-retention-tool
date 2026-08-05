@@ -1,5 +1,7 @@
 data/raw/
 data/state/
+data/incoming/
+data/briefings/
 __pycache__/
 *.pyc
 .DS_Store

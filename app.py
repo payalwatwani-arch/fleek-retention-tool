@@ -12,11 +12,13 @@ from __future__ import annotations
 
 import html
 import re
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
+from src.briefing import generate_briefing_text
 from src.pipeline import run_pipeline
 from src.scoring import compute_health_score
 from src.segmentation import ACCOUNT_MANAGED, SELF_SERVE
@@ -34,6 +36,7 @@ from src.state import (
 
 WORKBOOK_PATH = Path("data/raw/portfolio.xlsx")
 BATCH_UPLOAD_PATH = Path("data/raw/batch_upload.xlsx")
+BRIEFINGS_DIR = Path("data/briefings")
 LOGO_PATH = Path(__file__).parent / "static" / "fleek_logo.png"
 
 st.set_page_config(page_title="Fleek Retention Dashboard", layout="wide")
@@ -762,16 +765,14 @@ if view == "Overview":
 
     col5.metric("At-risk accounts", f"{int(df['is_at_risk'].sum()):,}")
 
-    st.subheader("Since last run")
-    summary = st.session_state.sync_summary
-    changed = summary["new_count"] + summary["follow_up_count"] + summary["resolved_count"]
-    st.write(f"**{changed} account(s) changed status since your last run.**")
-    st.write(
-        f"- New accounts: {summary['new_count']}\n"
-        f"- Moved to follow-up (something changed): {summary['follow_up_count']}\n"
-        f"- Resolved (no action needed anymore): {summary['resolved_count']}\n"
-        f"- Unchanged: {summary['unchanged_count']}"
-    )
+    briefing_path = BRIEFINGS_DIR / f"briefing_{date.today().isoformat()}.md"
+    if briefing_path.exists():
+        briefing_text = briefing_path.read_text()
+    else:
+        briefing_text = generate_briefing_text(df, st.session_state.sync_summary)
+
+    with st.container(border=True):
+        st.markdown(briefing_text)
 
 # ---------------------------------------------------------------------
 # VIEW 2 — Pipeline (Kanban board, by contact stage)
