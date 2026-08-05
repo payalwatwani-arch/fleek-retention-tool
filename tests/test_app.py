@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from app import SEGMENT_DISPLAY_NAMES
 from src.briefing import generate_briefing_text
 from src.scoring import compute_health_score
 from src.state import STAGE_ACTIONED, STAGE_FOLLOW_UP, STAGE_NEW, add_note, add_task, DEFAULT_DB_PATH
@@ -162,8 +163,8 @@ def test_card_shows_two_tags_when_at_risk_detail_differs_from_segment(app):
     )
     card = _card_markdown(at, row["account_id"])
 
-    assert f">{row['segment']}</span>" in card
-    assert f">{row['at_risk_detail']}</span>" in card
+    assert f">{SEGMENT_DISPLAY_NAMES.get(row['segment'], row['segment'])}</span>" in card
+    assert f">{SEGMENT_DISPLAY_NAMES.get(row['at_risk_detail'], row['at_risk_detail'])}</span>" in card
 
 
 def test_card_omits_duplicate_tag_when_at_risk_detail_equals_segment(app):
@@ -176,7 +177,7 @@ def test_card_omits_duplicate_tag_when_at_risk_detail_equals_segment(app):
     )
     card = _card_markdown(at, row["account_id"])
 
-    assert card.count(f">{row['segment']}</span>") == 1
+    assert card.count(f">{SEGMENT_DISPLAY_NAMES.get(row['segment'], row['segment'])}</span>") == 1
 
 
 def test_new_account_status_line_is_blank(app):

@@ -415,9 +415,16 @@ def _tag_category(tag: str) -> str:
     return "sage"
 
 
+SEGMENT_DISPLAY_NAMES = {
+    "Declining": "At Risk",
+    "Already Gone": "Gone Cold",
+}
+
+
 def _tag_html(tag: str) -> str:
     category = _tag_category(tag)
-    return f'<span class="tag tag-{category}">{html.escape(str(tag))}</span>'
+    display_tag = SEGMENT_DISPLAY_NAMES.get(tag, tag)
+    return f'<span class="tag tag-{category}">{html.escape(str(display_tag))}</span>'
 
 
 def _segment_tags(row) -> list[str]:
@@ -712,7 +719,8 @@ def _render_account_overview(row) -> None:
         st.caption(status_line)
 
     if row["is_at_risk"]:
-        st.warning(f"At risk: {row['at_risk_detail']}")
+        detail = row["at_risk_detail"]
+        st.warning(f"At risk: {SEGMENT_DISPLAY_NAMES.get(detail, detail)}")
 
     st.divider()
     st.subheader("Account numbers")
