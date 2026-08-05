@@ -17,11 +17,13 @@ Pipeline" returns to the board.
 from __future__ import annotations
 
 import shutil
+from datetime import date
 from pathlib import Path
 
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from src.briefing import generate_briefing_text
 from src.scoring import compute_health_score
 from src.state import STAGE_ACTIONED, STAGE_FOLLOW_UP, STAGE_NEW
 
@@ -703,3 +705,40 @@ def test_selection_clears_when_navigating_to_account_overview(app):
         assert at.checkbox(key=f"select_{account_id}").value is False
     with pytest.raises(KeyError):
         at.button(key="bulk_mark_actioned")
+
+
+# ---------------------------------------------------------------------
+# Overview: Morning Briefing (scheduled_run.py's file if present, else
+# generated live from the current in-session results)
+# ---------------------------------------------------------------------
+def test_overview_falls_back_to_live_briefing_when_no_file_exists(app):
+    at = app  # default view on load is Overview
+    assert not at.exception
+
+    df = at.session_state.df
+    summary = at.session_state.sync_summary
+    expected = generate_briefing_text(df, summary)
+
+    rendered = "\n".join(m.value for m in at.markdown)
+    assert "Morning Briefing" in rendered
+    for line in expected.splitlines():
+        assert line in rendered
+
+
+def test_overview_reads_todays_briefing_file_when_present(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    workbook = tmp_path / "data" / "raw" / "portfolio.xlsx"
+    workbook.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(DEMO_WORKBOOK, workbook)
+
+    briefings_dir = tmp_path / "data" / "briefings"
+    briefings_dir.mkdir(parents=True, exist_ok=True)
+    briefing_path = briefings_dir / f"briefing_{date.today().isoformat()}.md"
+    briefing_path.write_text("## Morning Briefing\n\nA canned briefing from a scheduled run.")
+
+    at = AppTest.from_file(str(APP_PATH), default_timeout=60)
+    at.run()
+    assert not at.exception
+
+    rendered = "\n".join(m.value for m in at.markdown)
+    assert "A canned briefing from a scheduled run." in rendered
