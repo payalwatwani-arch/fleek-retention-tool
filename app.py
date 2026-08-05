@@ -509,12 +509,9 @@ def _render_card(row) -> None:
 
     note_count = len(get_notes(account_id, db_path=DEFAULT_DB_PATH))
     task_summary = get_task_summary(account_id, db_path=DEFAULT_DB_PATH)
-    meta_parts = []
-    if note_count > 0:
-        meta_parts.append(_note_count_text(note_count))
+    meta_parts = [_note_count_text(note_count) if note_count > 0 else "Add note"]
     task_text = _task_status_text(task_summary)
-    if task_text:
-        meta_parts.append(task_text)
+    meta_parts.append(task_text if task_text else "Add task")
 
     # Line 1 (loudest): account_id + health score badge only.
     label = f'<div class="card-line1">{html.escape(account_id)}  ·  {_score_badge_html(score, arrow)}</div>'

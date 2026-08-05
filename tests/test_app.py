@@ -477,7 +477,7 @@ def test_task_card_badge_shows_due_in_n_days_neutral(app):
     at = at.run()
 
     card = _card_markdown(at, account_id)
-    assert '<div class="card-meta">Due in 3 days</div>' in card
+    assert '<div class="card-meta">Add note · Due in 3 days</div>' in card
 
 
 def test_task_card_badge_absent_when_no_tasks(app):
@@ -488,6 +488,7 @@ def test_task_card_badge_absent_when_no_tasks(app):
     card = _card_markdown(at, account_id)
     assert "Due in" not in card
     assert "Overdue" not in card
+    assert '<div class="card-meta">Add note · Add task</div>' in card
 
 
 def test_note_count_badge_shows_on_card_when_notes_exist(app):
@@ -499,7 +500,7 @@ def test_note_count_badge_shows_on_card_when_notes_exist(app):
     at = at.run()
 
     card = _card_markdown(at, account_id)
-    assert '<div class="card-meta">1 note</div>' in card
+    assert '<div class="card-meta">1 note · Add task</div>' in card
 
 
 def test_completing_a_task_removes_it_from_incomplete_and_updates_card_badge(app):
