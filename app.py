@@ -405,12 +405,13 @@ def _score_badge_html(score: int, arrow: str) -> str:
 
 
 def _tag_category(tag: str) -> str:
-    """Brand color tier for a segment/at-risk-detail tag: rust for urgent
-    (at-risk) signals, mustard for a growth opportunity, sage for
-    everything else (healthy or a routine nudge)."""
-    if tag in ("Already Gone", "Declining"):
+    """Brand color tier for a segment/at-risk-detail tag: rust for the
+    fully-churned "Gone Cold" signal, mustard for the still-recoverable
+    "At Risk" caution signal or a growth opportunity, sage for everything
+    else (healthy or a routine nudge)."""
+    if tag == "Already Gone":
         return "rust"
-    if tag == "Growth Headroom":
+    if tag in ("Declining", "Growth Headroom"):
         return "mustard"
     return "sage"
 
