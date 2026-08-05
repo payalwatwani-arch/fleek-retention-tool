@@ -95,6 +95,46 @@ being set — not guessed. The full reasoning, including a few places the
 original plan turned out to be wrong and was rebuilt, is documented in
 [`DECISIONS.md`](./DECISIONS.md).
 
+## How I'd actually use this in week one
+
+The tool tells you *what* needs attention. Here's how I'd actually
+sequence it, given a real portfolio like this one.
+
+**Start with the self-serve nudges, but not all 92 at once.** I'd
+prioritize by health score first — the ones still scoring reasonably well
+despite high broker reliance are the best odds of a clean migration; a
+low-scoring, heavily-reliant account is more likely to churn if pushed
+too hard, too fast. Those get a softer, slower approach — maybe the
+"expansion" framing before the "migrate" ask.
+
+**Treat gone-cold accounts as a completely separate campaign, not a
+routine nudge.** Sending a "try self-serve" message to an account that's
+already at zero spend misreads the situation entirely — they need a
+win-back, with a different tone and likely an incentive, not a feature
+pitch. The tool already drafts these differently for exactly this reason.
+
+**The 23 growth-headroom accounts are the highest-leverage quick wins,
+and I'd work these first, not last.** They're already spending, already
+engaged — they just haven't tried the one feature that fits their
+behavior. This is where the "Build-a-Bundle" split from the generic
+bundle nudge actually matters: an account that's already hand-picking
+more than they bundle needs a very different pitch than one that's never
+tried bundles at all. Getting that distinction right is a five-minute
+win, not a relationship to rebuild.
+
+**Anything flagged "also declining" underneath a different primary
+action gets a second look before I send anything.** A broker-reliant
+account that's also losing spend isn't just "migrate them" — it might be
+"find out why they're disappearing before asking them to change how they
+buy." The tool surfaces this as a flag specifically so it isn't missed
+inside a routine batch of self-serve nudges.
+
+**By week four**, I'd expect the Follow-up column to be the busiest one —
+the accounts from week one that didn't respond to a first touch. That's
+where the tone shifts from "here's an opportunity" to "checking in
+directly," and where I'd start looking at whether a call, not another
+message, is the better next move.
+
 ## Known limitations
 
 - **No live send integration.** Email, Text, and Call tabs are all
