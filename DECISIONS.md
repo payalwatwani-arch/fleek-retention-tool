@@ -133,3 +133,54 @@ hand-pick-heavy accounts aren't short on spend, so they correctly get no
 growth nudge at all. The two signals (hand-pick preference, growth
 headroom) are related but distinct — not every hand-pick-heavy account
 needs a nudge.
+
+## Deliberate scope decisions — deferred, not forgotten
+
+A few real, well-reasoned next steps were identified but intentionally
+not built tonight, given time constraints. Documenting the thinking here
+rather than shipping them under pressure.
+
+**Effectiveness digest.** Right now the tool tracks whether an account
+was actioned, but nothing measures whether the action actually worked.
+The natural next step: snapshot an account's segment at the exact moment
+mark_actioned() is called (actioned_segment), then later compare it
+against the account's current segment. A real stat like "of the 12
+accounts actioned in the last 14 days, 3 have since moved to a healthier
+segment" would close the loop from "did we act" to "did it work" — using
+data the tool already has, no new inputs required.
+
+**A more intelligent Overview page.** The current Overview shows a real
+narrative briefing and a since-last-run digest. A fuller version, sketched
+but not built: three structured sections mirroring how real CRM
+dashboards are organized (a numbers view, an activity view, an analytics
+view) — Visibility (portfolio distribution, core metrics), Engagement
+(a smart "needs attention first" ranking combining health score and
+touch count, a recently-actioned log), and Intelligence (the aggregate
+factor analysis, a "wins" callout for accounts that improved since last
+run).
+
+**A fuller outreach cadence.** Cadence currently uses 3 touch stages,
+triggered by real data changes on pipeline re-run — no calendar timing.
+A more mature version: 5-6 touches over 2-6 weeks with real day-gaps
+between them (e.g. 2 days, then 3, then 3-4, then 4, then a "breakup"
+message on day 5) — closer to a standard B2B outreach sequence, with a
+distinct final message type for a graceful close-out rather than fading
+silently.
+
+**A time-based follow-up trigger.** Currently, an account only moves to
+Follow-up if its real data changes. An account that goes fully silent
+(no data change at all) stays at Touch 1 indefinitely. A reasonable fix:
+if an account sits at "Actioned" for 5+ days with zero data change,
+treat that silence itself as a signal and move it to Follow-up anyway.
+5 days is a business judgment, not verified against real response-time
+data (which doesn't exist in this dataset) — a genuinely different kind
+of threshold than the data-grounded ones elsewhere in this build, and
+worth being explicit about that distinction.
+
+**Live LLM-generated messages, considered and declined.** Every drafted
+message in this tool is pre-written and deterministic, not generated at
+runtime. A live LLM call could produce more dynamic phrasing, but at the
+cost of the testability and reliability this build has prioritized
+throughout — a generated message can't be unit-tested the way a template
+can, and introduces a real risk of saying something not grounded in the
+actual account data. Declined deliberately, not from lack of consideration.
