@@ -813,6 +813,16 @@ elif view == "Pipeline":
 
         _apply_pending_checkbox_clear()
 
+        # Reserved here, right after the filters, so the toolbar is visible
+        # without scrolling -- the "New" column alone can hold hundreds of
+        # unpaginated cards, so a placeholder created after the board would
+        # render thousands of pixels below the fold. `_render_bulk_actions`
+        # still fills it after the board loop below, once this run's
+        # checkbox clicks have been folded into selected_account_ids; a
+        # `st.empty()` placeholder keeps the DOM position it was created
+        # at even when written to later in the script.
+        bulk_actions_placeholder = st.empty()
+
         board_columns = st.columns(len(STAGES))
         for board_col, stage in zip(board_columns, STAGES):
             with board_col:
@@ -821,7 +831,6 @@ elif view == "Pipeline":
                 for _, row in stage_df.iterrows():
                     _render_card(row)
 
-        bulk_actions_placeholder = st.empty()
         _render_bulk_actions(df, bulk_actions_placeholder)
 
 # ---------------------------------------------------------------------
