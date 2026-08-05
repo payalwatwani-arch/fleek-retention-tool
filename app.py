@@ -115,6 +115,29 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
     border-color: #D9A800 !important;
     border-radius: 10px;
 }
+
+/* Sidebar nav: plain-text items, no radio dot, active item gets a
+   rounded mustard pill behind just its own label (Zoho-style). */
+section[data-testid="stSidebar"] div[data-testid="stRadioGroup"] label[data-testid="stRadioOption"] > div > div > *:not([data-testid="stMarkdownContainer"]) {
+    display: none;
+}
+section[data-testid="stSidebar"] div[data-testid="stRadioGroup"] label[data-testid="stRadioOption"] {
+    border-radius: 999px;
+    padding: 6px 16px;
+    margin-bottom: 2px;
+    background: transparent;
+}
+section[data-testid="stSidebar"] div[data-testid="stRadioGroup"] label[data-testid="stRadioOption"] p {
+    color: #4A4640;
+    font-weight: 500;
+}
+section[data-testid="stSidebar"] div[data-testid="stRadioGroup"] label[data-testid="stRadioOption"][data-selected="true"] {
+    background: #F5C400;
+}
+section[data-testid="stSidebar"] div[data-testid="stRadioGroup"] label[data-testid="stRadioOption"][data-selected="true"] p {
+    color: #1C1A17;
+    font-weight: 700;
+}
 </style>
 """
 st.markdown(THEME_CSS, unsafe_allow_html=True)
@@ -747,7 +770,7 @@ if "pending_checkbox_clear" not in st.session_state:
 st.title("Fleek Retention Engine")
 st.sidebar.image(str(LOGO_PATH), width=140)
 view = st.sidebar.radio(
-    "View", ["Overview", "Pipeline", "Batch Ingestion"]
+    "View", ["Overview", "Pipeline", "Import"]
 )
 
 # ---------------------------------------------------------------------
@@ -836,10 +859,10 @@ elif view == "Pipeline":
         _render_bulk_actions(df, bulk_actions_placeholder)
 
 # ---------------------------------------------------------------------
-# VIEW 3 — Batch ingestion
+# VIEW 3 — Import (batch ingestion)
 # ---------------------------------------------------------------------
-elif view == "Batch Ingestion":
-    st.header("Batch Ingestion")
+elif view == "Import":
+    st.header("Import")
     st.write(
         "Upload a new workbook (e.g. the next `new_accounts` batch) to "
         "re-run the pipeline and reconcile it against the existing state."
