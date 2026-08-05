@@ -96,6 +96,36 @@ h2, h3 {
 .badge-mustard { background: #D9A800; color: #FDFBF6; }
 .badge-rust    { background: #C1502E; color: #FDFBF6; }
 
+/* Pipeline card hierarchy: line 1 (account + score) is the loudest
+   element, tags are secondary, status/meta lines step down in size and
+   drop pill styling entirely so nothing below line 1 competes with it. */
+.card-line1 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #1C1A17;
+}
+.card-line1 .badge {
+    font-size: 0.85rem;
+    padding: 2px 12px;
+    vertical-align: middle;
+}
+.card-tags {
+    margin-top: 4px;
+}
+.card-status {
+    margin-top: 4px;
+    font-size: 0.8rem;
+    font-weight: 400;
+    color: #6A655C;
+}
+.card-meta {
+    margin-top: 2px;
+    font-size: 0.72rem;
+    font-weight: 400;
+    color: #9A948A;
+}
+.card-meta-rust { color: #C1502E; }
+
 /* Health score factor breakdown */
 .badge-inline {
     display: inline-block;
@@ -392,14 +422,14 @@ def _segment_tags(row) -> list[str]:
     return tags
 
 
-def _note_count_badge_html(count: int) -> str:
-    return f'<span class="tag tag-neutral">Notes: {count}</span>'
+def _note_count_text(count: int) -> str:
+    return f"{count} note{'s' if count != 1 else ''}"
 
 
-def _task_status_badge_html(summary: dict) -> str:
-    """Badge for the single most urgent incomplete task, or "" if the
-    account has no open tasks. Overdue reads in rust; anything upcoming
-    (including due today) reads neutral."""
+def _task_status_text(summary: dict) -> str:
+    """Plain-text status for the single most urgent incomplete task, or ""
+    if the account has no open tasks. Overdue reads in rust (text color
+    only, no pill); anything upcoming (including due today) reads neutral."""
     if summary["next_due_date"] is None:
         return ""
     due = date.fromisoformat(summary["next_due_date"])
@@ -407,11 +437,10 @@ def _task_status_badge_html(summary: dict) -> str:
     if delta_days < 0:
         days = abs(delta_days)
         label = f"Overdue by {days} day{'s' if days != 1 else ''}"
-        return f'<span class="tag tag-rust">{label}</span>'
+        return f'<span class="card-meta-rust">{label}</span>'
     if delta_days == 0:
-        return '<span class="tag tag-neutral">Due today</span>'
-    label = f"Due in {delta_days} day{'s' if delta_days != 1 else ''}"
-    return f'<span class="tag tag-neutral">{label}</span>'
+        return "Due today"
+    return f"Due in {delta_days} day{'s' if delta_days != 1 else ''}"
 
 
 def _status_line(row) -> str:
@@ -465,18 +494,24 @@ def _render_card(row) -> None:
 
     note_count = len(get_notes(account_id, db_path=DEFAULT_DB_PATH))
     task_summary = get_task_summary(account_id, db_path=DEFAULT_DB_PATH)
-    indicator_badges = []
+    meta_parts = []
     if note_count > 0:
-        indicator_badges.append(_note_count_badge_html(note_count))
-    task_badge = _task_status_badge_html(task_summary)
-    if task_badge:
-        indicator_badges.append(task_badge)
+        meta_parts.append(_note_count_text(note_count))
+    task_text = _task_status_text(task_summary)
+    if task_text:
+        meta_parts.append(task_text)
 
-    label = f"**{account_id}**  ·  {_score_badge_html(score, arrow)}  ·  {tags}"
-    if indicator_badges:
-        label += "  ·  " + " ".join(indicator_badges)
+    # Line 1 (loudest): account_id + health score badge only.
+    label = f'<div class="card-line1">{html.escape(account_id)}  ·  {_score_badge_html(score, arrow)}</div>'
+    # Line 2 (secondary): segment / at-risk tags.
+    if tags:
+        label += f'<div class="card-tags">{tags}</div>'
+    # Line 3 (tertiary): plain status text, always labeled — no bare dates.
     if status_line:
-        label += f"  ·  {status_line}"
+        label += f'<div class="card-status">{html.escape(status_line)}</div>'
+    # Line 4 (quietest): note count / task due, plain text, no pills.
+    if meta_parts:
+        label += f'<div class="card-meta">{" · ".join(meta_parts)}</div>'
 
     selected_ids = st.session_state.selected_account_ids
 

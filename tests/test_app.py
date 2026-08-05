@@ -61,7 +61,10 @@ def _column_headers(at: AppTest) -> list[str]:
 
 
 def _card_markdown(at: AppTest, account_id: str) -> str:
-    matches = [m.value for m in at.markdown if m.value.startswith(f"**{account_id}**")]
+    matches = [
+        m.value for m in at.markdown
+        if m.value.startswith(f'<div class="card-line1">{account_id}')
+    ]
     assert len(matches) == 1, f"expected exactly one card for {account_id}, found {len(matches)}"
     return matches[0]
 
@@ -461,7 +464,7 @@ def test_task_card_badge_shows_overdue_in_rust(app):
 
     card = _card_markdown(at, account_id)
     assert "Overdue by 1 day" in card
-    assert 'class="tag tag-rust">Overdue by 1 day</span>' in card
+    assert 'class="card-meta-rust">Overdue by 1 day</span>' in card
 
 
 def test_task_card_badge_shows_due_in_n_days_neutral(app):
@@ -473,7 +476,7 @@ def test_task_card_badge_shows_due_in_n_days_neutral(app):
     at = at.run()
 
     card = _card_markdown(at, account_id)
-    assert 'class="tag tag-neutral">Due in 3 days</span>' in card
+    assert '<div class="card-meta">Due in 3 days</div>' in card
 
 
 def test_task_card_badge_absent_when_no_tasks(app):
@@ -495,7 +498,7 @@ def test_note_count_badge_shows_on_card_when_notes_exist(app):
     at = at.run()
 
     card = _card_markdown(at, account_id)
-    assert 'class="tag tag-neutral">Notes: 1</span>' in card
+    assert '<div class="card-meta">1 note</div>' in card
 
 
 def test_completing_a_task_removes_it_from_incomplete_and_updates_card_badge(app):
