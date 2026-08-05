@@ -26,7 +26,7 @@ from streamlit.testing.v1 import AppTest
 
 from app import SEGMENT_DISPLAY_NAMES
 from src.briefing import generate_briefing_text
-from src.nba import TONES
+from src.nba import GROWTH_LEVER_ACTIONS, TONES
 from src.scoring import compute_health_score
 from src.state import STAGE_ACTIONED, STAGE_FOLLOW_UP, STAGE_NEW, add_note, add_task, DEFAULT_DB_PATH
 
@@ -392,10 +392,13 @@ def test_self_serve_nudge_touch_variants_differ_across_stages_for_same_tone(app)
 
 
 def test_other_action_types_never_show_touch_label_regardless_of_touch_count(app):
+    # Win-back play / Retention check-in are the only remaining action types
+    # without touch-count-aware variants — Self-Serve Nudge and all 5 Growth
+    # Headroom levers now have them.
     at = _open_pipeline(app)
     df = at.session_state.df
     row = _first_account(
-        df, lambda d: (d["action"] != "Self-Serve Nudge") & (d["action"] != "None")
+        df, lambda d: d["action"].isin(["Win-back play", "Retention check-in"])
     )
     account_id = row["account_id"]
 
@@ -403,6 +406,120 @@ def test_other_action_types_never_show_touch_label_regardless_of_touch_count(app
     at = _open_account(at, account_id)
 
     assert _touch_badges(at) == []
+
+
+# ---------------------------------------------------------------------
+# Growth Headroom: manual lever override + touch-count cadence for all 5
+# growth levers.
+# ---------------------------------------------------------------------
+def test_growth_headroom_shows_lever_dropdown_defaulting_to_auto_selected(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+
+    row = _first_account(
+        df, lambda d: (d["segment"] == "Growth Headroom") & (d["action"].isin(GROWTH_LEVER_ACTIONS))
+    )
+    account_id = row["account_id"]
+    at = _open_account(at, account_id)
+
+    lever_select = at.selectbox(key=f"lever_{account_id}")
+    assert lever_select.value == row["action"]
+    assert set(lever_select.options) == set(GROWTH_LEVER_ACTIONS)
+
+    captions = [c.value for c in at.caption]
+    assert any(c.startswith("Auto-selected:") for c in captions)
+
+
+def test_growth_headroom_override_to_different_lever_changes_message_and_resets_touch_count(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+
+    row = _first_account(
+        df, lambda d: (d["segment"] == "Growth Headroom") & (d["action"].isin(GROWTH_LEVER_ACTIONS))
+    )
+    account_id = row["account_id"]
+    auto_action = row["action"]
+    other_action = next(a for a in GROWTH_LEVER_ACTIONS if a != auto_action)
+
+    # Simulate real prior touch history on the auto-selected lever.
+    _set_touch_count(account_id, 2)
+    at = _open_account(at, account_id)
+
+    assert any(b.endswith('Touch 3</span>') for b in _touch_badges(at))
+    original_message = at.text_area(key=f"message_{account_id}_{auto_action}_Direct").value
+
+    lever_select = at.selectbox(key=f"lever_{account_id}")
+    at = lever_select.set_value(other_action).run()
+    assert not at.exception
+
+    # Switching levers is a new conversation, so it resets to Touch 1 —
+    # not a continuation of the auto-selected lever's touch_count == 2.
+    assert any(b.endswith('Touch 1</span>') for b in _touch_badges(at))
+    overridden_message = at.text_area(key=f"message_{account_id}_{other_action}_Direct").value
+    assert overridden_message != original_message
+
+    assert f"**Action:** {other_action}" in [m.value for m in at.markdown]
+
+
+def test_growth_headroom_leaving_lever_unchanged_keeps_real_touch_count(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+
+    row = _first_account(
+        df, lambda d: (d["segment"] == "Growth Headroom") & (d["action"].isin(GROWTH_LEVER_ACTIONS))
+    )
+    account_id = row["account_id"]
+
+    _set_touch_count(account_id, 1)
+    at = _open_account(at, account_id)
+
+    # No override: the auto-selected lever's real touch_count (1) still
+    # applies, showing the Touch 2 variant.
+    assert any(b.endswith('Touch 2</span>') for b in _touch_badges(at))
+
+
+@pytest.mark.parametrize("action", GROWTH_LEVER_ACTIONS)
+def test_each_growth_lever_shows_touch_cadence_across_all_three_stages(app, action):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+
+    matches = df[(df["segment"] == "Growth Headroom") & (df["action"] == action)]
+    if matches.empty:
+        pytest.skip(f"no Growth Headroom account with action {action!r} in the demo workbook")
+    account_id = matches.iloc[0]["account_id"]
+
+    at = _open_account(at, account_id)
+    assert any(b.endswith('Touch 1</span>') for b in _touch_badges(at))
+
+    at = at.button(key="back_to_pipeline").click().run()
+    _set_touch_count(account_id, 1)
+    at = _open_account(at, account_id)
+    assert any(b.endswith('Touch 2</span>') for b in _touch_badges(at))
+
+    at = at.button(key="back_to_pipeline").click().run()
+    _set_touch_count(account_id, 2)
+    at = _open_account(at, account_id)
+    assert any(b.endswith('Touch 3</span>') for b in _touch_badges(at))
+
+
+def test_offer_tool_nudge_overview_never_mentions_discount_or_promotion(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+
+    matches = df[(df["segment"] == "Growth Headroom") & (df["action"] == "Offer tool nudge")]
+    if matches.empty:
+        pytest.skip("no Growth Headroom account with action 'Offer tool nudge' in the demo workbook")
+    account_id = matches.iloc[0]["account_id"]
+
+    at = _open_account(at, account_id)
+    for tone in TONES:
+        tone_radio = at.radio(key=f"tone_{account_id}")
+        at = tone_radio.set_value(tone).run()
+        message = at.text_area(key=f"message_{account_id}_Offer tool nudge_{tone}").value.lower()
+        subject = at.text_input(key=f"subject_{account_id}_Offer tool nudge_{tone}").value.lower()
+        for term in ("discount", "% off", "promo", "coupon"):
+            assert term not in message
+            assert term not in subject
 
 
 # ---------------------------------------------------------------------

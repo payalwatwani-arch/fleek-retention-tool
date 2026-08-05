@@ -12,7 +12,14 @@ import math
 
 import pytest
 
-from src.nba import AT_RISK_APPEND_SENTENCE, TONES, draft_self_serve_nudge_stage
+from src.nba import (
+    AT_RISK_APPEND_SENTENCE,
+    GROWTH_LEVER_ACTIONS,
+    TONES,
+    draft_growth_lever_stage,
+    draft_self_serve_nudge_stage,
+    explain_growth_lever_default,
+)
 
 
 def make_row(**overrides):
@@ -94,3 +101,80 @@ def test_no_at_risk_sentence_when_not_at_risk():
         _, variants = draft_self_serve_nudge_stage(row, touch_count)
         for variant in variants:
             assert AT_RISK_APPEND_SENTENCE not in variant["message"]
+
+
+# ---------------------------------------------------------------------
+# draft_growth_lever_stage(): the same touch-count cadence pattern, applied
+# to each of the 5 Growth Headroom levers.
+# ---------------------------------------------------------------------
+
+def make_growth_row(**overrides):
+    row = {
+        "account_id": "ACC-2",
+        "name": "Bloom & Co",
+        "is_at_risk": False,
+        "bundle_gmv_share_pct": 40,
+        "handpick_orders": 12,
+        "bundle_orders": 3,
+        "make_an_offer_6m": 0,
+        "chat_threads": 0,
+        "video_call_requests": 0,
+        "orders_6m": 20,
+    }
+    row.update(overrides)
+    return row
+
+
+@pytest.mark.parametrize("action", GROWTH_LEVER_ACTIONS)
+@pytest.mark.parametrize("touch_count,expected_stage", [(0, 1), (None, 1), (1, 2), (2, 3), (5, 3)])
+def test_growth_lever_cadence_all_levers_all_stages(action, touch_count, expected_stage):
+    row = make_growth_row()
+    stage, variants = draft_growth_lever_stage(row, action, touch_count)
+
+    assert stage == expected_stage
+    assert {v["tone"] for v in variants} == set(TONES)
+    for variant in variants:
+        assert "Bloom & Co" in variant["message"]
+
+
+@pytest.mark.parametrize("action", GROWTH_LEVER_ACTIONS)
+def test_growth_lever_each_touch_stage_is_distinct_per_tone(action):
+    row = make_growth_row()
+    _, touch1 = draft_growth_lever_stage(row, action, 0)
+    _, touch2 = draft_growth_lever_stage(row, action, 1)
+    _, touch3 = draft_growth_lever_stage(row, action, 2)
+
+    by_tone = lambda variants: {v["tone"]: v["message"] for v in variants}
+    t1, t2, t3 = by_tone(touch1), by_tone(touch2), by_tone(touch3)
+
+    for tone in TONES:
+        assert t1[tone] != t2[tone]
+        assert t2[tone] != t3[tone]
+        assert t1[tone] != t3[tone]
+
+
+@pytest.mark.parametrize("action", GROWTH_LEVER_ACTIONS)
+def test_growth_lever_at_risk_sentence_appended_across_all_stages(action):
+    row = make_growth_row(is_at_risk=True)
+    for touch_count in (0, 1, 2):
+        _, variants = draft_growth_lever_stage(row, action, touch_count)
+        for variant in variants:
+            assert AT_RISK_APPEND_SENTENCE in variant["message"]
+
+
+def test_offer_tool_nudge_never_mentions_discount_or_promotion():
+    row = make_growth_row()
+    banned_terms = ["discount", "% off", "promo", "coupon", "% discount"]
+    for touch_count in (0, 1, 2):
+        _, variants = draft_growth_lever_stage(row, "Offer tool nudge", touch_count)
+        for variant in variants:
+            text = f"{variant['subject']} {variant['message']}".lower()
+            for term in banned_terms:
+                assert term not in text, f"found banned term {term!r} in: {text}"
+
+
+def test_explain_growth_lever_default_matches_auto_selected_action():
+    for action in GROWTH_LEVER_ACTIONS:
+        row = make_growth_row(action=action)
+        reason = explain_growth_lever_default(row)
+        assert reason.startswith("Auto-selected:")

@@ -19,7 +19,12 @@ import pandas as pd
 import streamlit as st
 
 from src.briefing import generate_briefing_text
-from src.nba import draft_self_serve_nudge_stage
+from src.nba import (
+    GROWTH_LEVER_ACTIONS,
+    draft_growth_lever_stage,
+    draft_self_serve_nudge_stage,
+    explain_growth_lever_default,
+)
 from src.pipeline import run_pipeline
 from src.scoring import compute_health_score
 from src.segmentation import ACCOUNT_MANAGED, SELF_SERVE
@@ -781,14 +786,39 @@ def _render_account_overview(row) -> None:
         st.caption("No action needed.")
     else:
         st.subheader("Drafted outreach")
-        st.write(f"**Action:** {row['action']}")
 
         touch_stage = None
-        if row["action"] == "Self-Serve Nudge":
+        selected_action = row["action"]
+        # Empty for every action except an overridable growth lever, where it
+        # namespaces the subject/message widget keys by the currently
+        # selected lever — otherwise Streamlit would keep showing the
+        # previously selected lever's text after the dropdown changes, since
+        # a widget key that doesn't change keeps its old value across reruns.
+        widget_key_suffix = ""
+
+        if row["segment"] == "Growth Headroom" and row["action"] in GROWTH_LEVER_ACTIONS:
+            st.caption(explain_growth_lever_default(row))
+            selected_action = st.selectbox(
+                "Growth lever",
+                GROWTH_LEVER_ACTIONS,
+                index=GROWTH_LEVER_ACTIONS.index(row["action"]),
+                key=f"lever_{account_id}",
+            )
+            widget_key_suffix = f"_{selected_action}"
+            st.write(f"**Action:** {selected_action}")
+            # Overriding to a different lever than the auto-selected one is
+            # a genuinely new conversation (e.g. never having mentioned
+            # bundles before), so it starts at Touch 1 regardless of the
+            # auto-selected lever's real touch_count from the state DB.
+            touch_count = row.get("touch_count") if selected_action == row["action"] else 0
+            touch_stage, variants = draft_growth_lever_stage(row, selected_action, touch_count)
+        elif row["action"] == "Self-Serve Nudge":
+            st.write(f"**Action:** {row['action']}")
             touch_stage, variants = draft_self_serve_nudge_stage(
                 row, row.get("touch_count")
             )
         else:
+            st.write(f"**Action:** {row['action']}")
             variants = row["draft_variants"]
 
         variants_by_tone = {variant["tone"]: variant for variant in variants}
@@ -810,13 +840,15 @@ def _render_account_overview(row) -> None:
 
         with email_tab:
             st.text_input(
-                "Subject", value=variant["subject"], key=f"subject_{account_id}_{tone}"
+                "Subject",
+                value=variant["subject"],
+                key=f"subject_{account_id}{widget_key_suffix}_{tone}",
             )
             st.text_area(
                 "Message",
                 value=variant["message"],
                 height=250,
-                key=f"message_{account_id}_{tone}",
+                key=f"message_{account_id}{widget_key_suffix}_{tone}",
             )
 
         with text_tab:
@@ -824,7 +856,7 @@ def _render_account_overview(row) -> None:
             st.code(_format_for_text(variant["message"]), language=None)
 
         with call_tab:
-            _render_call_script(row, row["action"])
+            _render_call_script(row, selected_action)
 
     st.divider()
     st.subheader("Notes")
