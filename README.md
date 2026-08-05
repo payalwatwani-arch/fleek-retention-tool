@@ -1,1 +1,130 @@
-# fleek-retention-tool
+# Fleek Retention Engine
+
+A tool that runs Fleek's account-management portfolio automatically: cleans
+the raw data, segments every account by real behavior, decides the next
+useful action, drafts it, and tracks it — safely, every time it re-runs,
+without duplicating work or losing history.
+
+Built for Fleek's GTM Retention case study.
+
+## What it actually does
+
+Every account gets sorted into one of two situations the brief describes:
+
+- **Account-managed customers over-reliant on their AM** → flagged for a
+  self-serve nudge, with a message drafted to move them toward ordering
+  directly, without losing their spend.
+- **Self-serve customers with unused growth potential** → matched to one
+  of five real levers (bundles, build-a-bundle, the offer tool, chat,
+  video calls), based on which specific signal applies to them.
+
+Declining or already-gone accounts get flagged separately, regardless of
+which of the above also applies — so nothing important gets hidden behind
+a single label.
+
+Every account also gets a health score (0–100) with a plain-English
+breakdown of what's driving it, and a status — New, Actioned, or
+Follow-up — that tracks whether it's been handled, and whether it needs a
+second touch.
+
+## How to run it
+
+```bash
+pip install -r requirements.txt --break-system-packages
+
+# Command line — run the full pipeline once against a workbook:
+python run.py path/to/portfolio.xlsx
+
+# Dashboard — the actual working tool:
+python -m streamlit run app.py
+```
+
+The dashboard will ask you to upload the portfolio workbook (must contain
+`Accounts` and `new_accounts` sheets, same shape as the case study file) on
+first load.
+
+## Architecture
+
+```
+[ Raw Excel ] ──► [ data_loader.py ]  clean, dedupe, merge new_accounts
+                          │
+                          ▼
+                  [ segmentation.py ]  real thresholds, checked against
+                          │            the actual data's distribution
+                          ▼
+                  [ scoring.py ]  0–100 health score + factor breakdown
+                          │
+          ┌───────────────┴────────────────┐
+          ▼                                 ▼
+ [ Self-serve / growth nudges ]   [ Declining / already-gone flag ]
+ (draft ready — AM reviews          (surfaced regardless of primary
+  and sends)                         segment, nothing hidden)
+          │                                 │
+          └───────────────┬────────────────┘
+                           ▼
+                    [ nba.py ]  drafts the message — 3 tones,
+                          │      3 formats (Email / Text / Call script)
+                          ▼
+                  [ state.py ]  tracks New → Actioned → Follow-up,
+                          │      idempotent — re-running never duplicates
+                          ▼
+                  [ app.py ]  the dashboard — Pipeline board, Account
+                               Overview, Notes, filters, multi-select
+```
+
+Everything left of the dashboard runs unattended. The dashboard is where a
+human reviews a draft and decides to send it — nothing in this tool sends
+anything automatically, on purpose (see Limitations).
+
+## Proof, not claims
+
+- **Idempotency, on real data**: running the pipeline twice on the same
+  344-account file shows `0 new, 0 reset, 344 unchanged` on the second
+  run — nothing gets reprocessed or duplicated.
+- **Idempotency, at scale**: the same test at 30,034 synthetic accounts
+  completes in ~14 seconds, with the second run showing the identical
+  zero-waste result — proving the "300 to 30,000" requirement with a real
+  number, not an assumption.
+- **64 automated tests**, covering segmentation logic, state transitions,
+  scoring, the dashboard's rendering, and the scale test itself.
+
+## Key decisions
+
+Every threshold in this tool was checked against the real data before
+being set — not guessed. The full reasoning, including a few places the
+original plan turned out to be wrong and was rebuilt, is documented in
+[`DECISIONS.md`](./DECISIONS.md).
+
+## Known limitations
+
+- **No live send integration.** Email, Text, and Call tabs are all
+  drafted and formatted, but nothing sends automatically — there's no
+  phone number or verified contact channel anywhere in the real dataset,
+  so building a send button would mean fabricating contact data for real,
+  anonymised customers. A human sends; the tool drafts.
+- **Schema is specific to this dataset**, not a generic plug-and-play
+  tool. Column names and thresholds are grounded in this case study's
+  real data — a genuinely different dataset would need its own threshold
+  pass, the same way this one got one.
+- **No literal "Resolved" stage.** Resolution happens automatically when
+  an account's real data changes enough that segmentation no longer
+  assigns it an action — a stronger signal than a manual button, since
+  it's backed by evidence rather than a claim.
+
+## How AI was used
+
+Claude Code was used as an operational accelerator — writing the
+boilerplate Pandas/Streamlit/SQLite code quickly once the underlying logic
+was already decided. Most of the actual time went into the segmentation
+thresholds, the next-best-action priority logic, and the edge cases (the
+at-risk-account visibility gap, the checkbox-toolbar rendering bug) —
+found by checking real numbers against what the code produced, not by
+assuming the first working version was correct.
+
+I used Claude Code's Plan Mode for the larger structural changes (the
+Kanban board rebuild, the multi-select feature), since it's better suited
+to reasoning through a change before writing it. That did mean running
+into usage limits partway through the build — a real, practical
+constraint worth naming honestly rather than glossing over, since it's
+part of actually working with these tools day to day, not just a clean
+demo of them.
