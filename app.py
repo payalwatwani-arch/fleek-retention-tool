@@ -115,6 +115,31 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
     border-color: #D9A800 !important;
     border-radius: 10px;
 }
+
+/* Sidebar view navigation -- icon + label pills with a mustard highlight
+   on the active view. */
+section[data-testid="stSidebar"] div[data-testid="stRadioGroup"] {
+    gap: 4px;
+}
+section[data-testid="stSidebar"] label[data-testid="stRadioOption"] {
+    padding: 8px 12px;
+    border-radius: 10px;
+    transition: background-color 0.15s ease;
+}
+section[data-testid="stSidebar"] label[data-testid="stRadioOption"]:hover {
+    background-color: rgba(28, 26, 23, 0.08);
+}
+section[data-testid="stSidebar"] label[data-testid="stRadioOption"] > div > div > div:not([data-testid="stMarkdownContainer"]) {
+    display: none;
+}
+section[data-testid="stSidebar"] label[data-testid="stRadioOption"] [data-testid="stMarkdownContainer"] p {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #1C1A17;
+}
+section[data-testid="stSidebar"] label[data-testid="stRadioOption"][data-selected="true"] {
+    background-color: #F5C400;
+}
 </style>
 """
 st.markdown(THEME_CSS, unsafe_allow_html=True)
@@ -746,8 +771,12 @@ if "pending_checkbox_clear" not in st.session_state:
 
 st.title("Fleek Retention Engine")
 st.sidebar.image(str(LOGO_PATH), width=140)
+NAV_ICONS = {"Overview": "🏠", "Pipeline": "📊", "Import": "📥"}
 view = st.sidebar.radio(
-    "View", ["Overview", "Pipeline", "Batch Ingestion"]
+    "View",
+    list(NAV_ICONS),
+    format_func=lambda label: f"{NAV_ICONS[label]}  {label}",
+    label_visibility="collapsed",
 )
 
 # ---------------------------------------------------------------------
@@ -836,10 +865,10 @@ elif view == "Pipeline":
         _render_bulk_actions(df, bulk_actions_placeholder)
 
 # ---------------------------------------------------------------------
-# VIEW 3 — Batch ingestion
+# VIEW 3 — Import
 # ---------------------------------------------------------------------
-elif view == "Batch Ingestion":
-    st.header("Batch Ingestion")
+elif view == "Import":
+    st.header("Import")
     st.write(
         "Upload a new workbook (e.g. the next `new_accounts` batch) to "
         "re-run the pipeline and reconcile it against the existing state."
