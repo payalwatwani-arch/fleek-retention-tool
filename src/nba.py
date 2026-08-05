@@ -476,6 +476,454 @@ def _draft_video_call_nudge(row) -> list[dict[str, str]]:
     ]
 
 
+def _draft_bundle_nudge_touch2(row) -> list[dict[str, str]]:
+    """Second-touch variant for Bundle nudge: touch_count == 1."""
+    label = _account_label(row)
+    bundle_pct = _pct(row.get("bundle_gmv_share_pct"))
+    return [
+        {
+            "tone": "Direct",
+            "subject": "Following up: try bundles to save time",
+            "message": (
+                f"Hi {label} team, following up on my note about bundles. Still only {bundle_pct} of your recent "
+                f"GMV has gone through bundles — worth setting up on your next order."
+            ),
+        },
+        {
+            "tone": "Warm",
+            "subject": "Circling back on bundles",
+            "message": (
+                f"Hi {label} team, just circling back on bundles — no worries if it got buried! Only {bundle_pct} "
+                f"of your recent GMV has gone through bundles so far, and it's still a quick way to save time on "
+                f"your next order. Want to give it a try?"
+            ),
+        },
+        {
+            "tone": "Formal",
+            "subject": "Following up: streamlining ordering via bundles",
+            "message": (
+                f"Dear {label} team, I am following up on my previous note regarding bundled ordering. Our "
+                f"records continue to show that only {bundle_pct} of your recent GMV has been processed through "
+                f"bundles. We would welcome the opportunity to assist you in getting started."
+            ),
+        },
+    ]
+
+
+def _draft_bundle_nudge_touch3(row) -> list[dict[str, str]]:
+    """Third-attempt variant for Bundle nudge: touch_count >= 2."""
+    label = _account_label(row)
+    bundle_pct = _pct(row.get("bundle_gmv_share_pct"))
+    return [
+        {
+            "tone": "Direct",
+            "subject": "One more try: let's set up your first bundle together",
+            "message": (
+                f"Hi {label} team, I've reached out twice now about bundles — still only {bundle_pct} of your "
+                f"recent GMV has gone through them. Rather than another note, let's just get on a quick call and "
+                f"I'll set up your first bundle with you live.\n\nReply with a time that works."
+            ),
+        },
+        {
+            "tone": "Warm",
+            "subject": "Let's make it easy: I'll build your first bundle with you",
+            "message": (
+                f"Hi {label} team, I know I've mentioned this a couple of times now, so let's make it easy — "
+                f"only {bundle_pct} of your recent GMV has gone through bundles, and I'd love to just hop on a "
+                f"quick call and set your first one up with you.\n\nWhat's a good time this week?"
+            ),
+        },
+        {
+            "tone": "Formal",
+            "subject": "A final note on bundled ordering, with hands-on support",
+            "message": (
+                f"Dear {label} team, having reached out on two prior occasions regarding bundled ordering, I "
+                f"would like to offer hands-on support: only {bundle_pct} of your recent GMV has been processed "
+                f"through bundles, and I would be glad to personally assist in setting up your first one on a "
+                f"brief call.\n\nPlease let me know a convenient time."
+            ),
+        },
+    ]
+
+
+def _draft_build_a_bundle_nudge_touch2(row) -> list[dict[str, str]]:
+    """Second-touch variant for Build-a-Bundle nudge: touch_count == 1."""
+    label = _account_label(row)
+    handpick = row.get("handpick_orders")
+    bundled = row.get("bundle_orders")
+    handpick_str = "an unclear number of" if handpick is None or pd.isna(handpick) else f"{handpick:.0f}"
+    bundled_str = "an unclear number of" if bundled is None or pd.isna(bundled) else f"{bundled:.0f}"
+    return [
+        {
+            "tone": "Direct",
+            "subject": "Following up: save your picks as a reusable bundle",
+            "message": (
+                f"Hi {label} team, following up on my note about build-a-bundle. You've still handpicked "
+                f"{handpick_str} orders item-by-item versus {bundled_str} through pre-made bundles — saving your "
+                f"own selection would cut that work down next time."
+            ),
+        },
+        {
+            "tone": "Warm",
+            "subject": "Circling back on saving your usual picks",
+            "message": (
+                f"Hi {label} team, just circling back — no worries if my last note got buried! You've handpicked "
+                f"{handpick_str} orders item-by-item so far versus {bundled_str} through pre-made bundles, and "
+                f"saving your exact selection as a bundle would make reordering a one-click thing. Want to give "
+                f"it a try?"
+            ),
+        },
+        {
+            "tone": "Formal",
+            "subject": "Following up: introducing the build-a-bundle tool",
+            "message": (
+                f"Dear {label} team, I am following up on my previous note regarding the build-a-bundle tool. "
+                f"Our records continue to show {handpick_str} handpicked orders against {bundled_str} placed "
+                f"through pre-made bundles. We would welcome the opportunity to assist you in getting started."
+            ),
+        },
+    ]
+
+
+def _draft_build_a_bundle_nudge_touch3(row) -> list[dict[str, str]]:
+    """Third-attempt variant for Build-a-Bundle nudge: touch_count >= 2."""
+    label = _account_label(row)
+    handpick = row.get("handpick_orders")
+    bundled = row.get("bundle_orders")
+    handpick_str = "an unclear number of" if handpick is None or pd.isna(handpick) else f"{handpick:.0f}"
+    bundled_str = "an unclear number of" if bundled is None or pd.isna(bundled) else f"{bundled:.0f}"
+    return [
+        {
+            "tone": "Direct",
+            "subject": "One more try: let's build your bundle together",
+            "message": (
+                f"Hi {label} team, I've reached out twice now about build-a-bundle — you're still at "
+                f"{handpick_str} handpicked orders versus {bundled_str} through pre-made bundles. Rather than "
+                f"another note, let's hop on a quick call and I'll save your usual picks as a bundle with "
+                f"you.\n\nReply with a time that works."
+            ),
+        },
+        {
+            "tone": "Warm",
+            "subject": "Let's make it easy: I'll set up your bundle with you",
+            "message": (
+                f"Hi {label} team, I know I've mentioned this a couple of times now, so let's make it easy — "
+                f"you're at {handpick_str} handpicked orders versus {bundled_str} through pre-made bundles, and "
+                f"I'd love to just hop on a quick call and save your usual selection as a bundle together.\n\n"
+                f"What's a good time this week?"
+            ),
+        },
+        {
+            "tone": "Formal",
+            "subject": "A final note on the build-a-bundle tool, with hands-on support",
+            "message": (
+                f"Dear {label} team, having reached out on two prior occasions regarding the build-a-bundle "
+                f"tool, I would like to offer hands-on support: our records show {handpick_str} handpicked "
+                f"orders against {bundled_str} through pre-made bundles, and I would be glad to personally "
+                f"assist in saving your selection as a bundle on a brief call.\n\nPlease let me know a "
+                f"convenient time."
+            ),
+        },
+    ]
+
+
+def _draft_offer_tool_nudge_touch2(row) -> list[dict[str, str]]:
+    """Second-touch variant for Offer tool nudge: touch_count == 1."""
+    label = _account_label(row)
+    return [
+        {
+            "tone": "Direct",
+            "subject": "Following up: make an offer instead of paying list price",
+            "message": (
+                f"Hi {label} team, following up on my note about the make-an-offer tool. You can still propose "
+                f"your own price directly in the product on items you're browsing, instead of ordering at list "
+                f"price — worth a shot."
+            ),
+        },
+        {
+            "tone": "Warm",
+            "subject": "Circling back on the make-an-offer tool",
+            "message": (
+                f"Hi {label} team, just circling back — no worries if my last note got buried! You can propose "
+                f"your own price directly in the product instead of ordering at list price, whenever you're "
+                f"browsing something. Want to give it a try on your next order?"
+            ),
+        },
+        {
+            "tone": "Formal",
+            "subject": "Following up: introducing the make-an-offer tool",
+            "message": (
+                f"Dear {label} team, I am following up on my previous note regarding our make-an-offer tool, "
+                f"which allows you to propose your own price directly within the product rather than ordering "
+                f"at list price. We encourage you to consider it on items you are currently browsing."
+            ),
+        },
+    ]
+
+
+def _draft_offer_tool_nudge_touch3(row) -> list[dict[str, str]]:
+    """Third-attempt variant for Offer tool nudge: touch_count >= 2. Stays
+    accurate to the real Make an Offer feature (customer proposes their own
+    price) — no invented discount percentages or promotions."""
+    label = _account_label(row)
+    return [
+        {
+            "tone": "Direct",
+            "subject": "One more try: let's walk through make-an-offer together",
+            "message": (
+                f"Hi {label} team, I've reached out twice now about the make-an-offer tool. Rather than another "
+                f"note, let's hop on a quick call and I'll walk you through submitting your first offer on an "
+                f"item you're already browsing.\n\nReply with a time that works."
+            ),
+        },
+        {
+            "tone": "Warm",
+            "subject": "Let's make it easy: I'll walk you through your first offer",
+            "message": (
+                f"Hi {label} team, I know I've mentioned this a couple of times now, so let's make it easy — "
+                f"I'd love to just hop on a quick call and walk you through submitting your first offer on "
+                f"something you're already browsing.\n\nWhat's a good time this week?"
+            ),
+        },
+        {
+            "tone": "Formal",
+            "subject": "A final note on the make-an-offer tool, with hands-on support",
+            "message": (
+                f"Dear {label} team, having reached out on two prior occasions regarding the make-an-offer "
+                f"tool, I would like to offer hands-on support in submitting your first offer on an item you "
+                f"are currently browsing.\n\nPlease let me know a convenient time for a brief call."
+            ),
+        },
+    ]
+
+
+def _draft_chat_nudge_touch2(row) -> list[dict[str, str]]:
+    """Second-touch variant for Chat nudge: touch_count == 1."""
+    label = _account_label(row)
+    return [
+        {
+            "tone": "Direct",
+            "subject": "Following up: got a question? Try chat",
+            "message": (
+                f"Hi {label} team, following up on my note about chat. It's still there for quick questions on "
+                f"sizing, availability, or anything else — worth a try on your next order."
+            ),
+        },
+        {
+            "tone": "Warm",
+            "subject": "Circling back: we're a chat message away",
+            "message": (
+                f"Hi {label} team, just circling back — no worries if my last note got buried! If anything ever "
+                f"comes up — sizing, availability, timing — we're just a message away. Want to give chat a try?"
+            ),
+        },
+        {
+            "tone": "Formal",
+            "subject": "Following up: chat support now available to you",
+            "message": (
+                f"Dear {label} team, I am following up on my previous note regarding our chat support. We would "
+                f"encourage you to reach out via chat should any questions arise regarding your orders."
+            ),
+        },
+    ]
+
+
+def _draft_chat_nudge_touch3(row) -> list[dict[str, str]]:
+    """Third-attempt variant for Chat nudge: touch_count >= 2."""
+    label = _account_label(row)
+    return [
+        {
+            "tone": "Direct",
+            "subject": "One more try: let's start the conversation",
+            "message": (
+                f"Hi {label} team, I've reached out twice now about chat. Rather than another note, just reply "
+                f"here or message us directly and we'll walk you through whatever you need on your next order."
+            ),
+        },
+        {
+            "tone": "Warm",
+            "subject": "Let's make it easy: just say hi",
+            "message": (
+                f"Hi {label} team, I know I've mentioned this a couple of times now, so let's make it easy — "
+                f"just reply here or send us a quick chat message whenever something comes up. We'd love to "
+                f"hear from you."
+            ),
+        },
+        {
+            "tone": "Formal",
+            "subject": "A final note on chat support",
+            "message": (
+                f"Dear {label} team, having reached out on two prior occasions regarding chat support, we "
+                f"would welcome the opportunity to assist you directly. Please do not hesitate to reach out via "
+                f"chat with any questions regarding your orders."
+            ),
+        },
+    ]
+
+
+def _draft_video_call_nudge_touch2(row) -> list[dict[str, str]]:
+    """Second-touch variant for Video call nudge: touch_count == 1."""
+    label = _account_label(row)
+    call_count = row.get("video_call_requests", 0)
+    if call_count is None or pd.isna(call_count):
+        call_count = 0
+    call_count = int(call_count)
+    return [
+        {
+            "tone": "Direct",
+            "subject": "Following up: try Virtual Handpick",
+            "message": (
+                f"Hi {label} team, following up on my note about Virtual Handpick ({call_count} so far). It's "
+                f"still a live video call directly with the supplier, where you curate and handpick your bundle "
+                f"together in real time. Want us to set one up with your next order?"
+            ),
+        },
+        {
+            "tone": "Warm",
+            "subject": "Circling back on handpicking your next bundle live",
+            "message": (
+                f"Hi {label} team, just circling back — no worries if my last note got buried! Virtual Handpick "
+                f"({call_count} so far) is a video call directly with the supplier, so you can walk through "
+                f"moodboards and curate a bundle together in real time. Want to give it a try on your next order?"
+            ),
+        },
+        {
+            "tone": "Formal",
+            "subject": "Following up: introducing Virtual Handpick",
+            "message": (
+                f"Dear {label} team, I am following up on my previous note regarding Virtual Handpick ({call_count} "
+                f"to date), which connects you directly with our suppliers via live video call to curate and "
+                f"handpick your bundle together in real time. We would welcome the opportunity to arrange a "
+                f"session at your convenience."
+            ),
+        },
+    ]
+
+
+def _draft_video_call_nudge_touch3(row) -> list[dict[str, str]]:
+    """Third-attempt variant for Video call nudge: touch_count >= 2."""
+    label = _account_label(row)
+    call_count = row.get("video_call_requests", 0)
+    if call_count is None or pd.isna(call_count):
+        call_count = 0
+    call_count = int(call_count)
+    return [
+        {
+            "tone": "Direct",
+            "subject": "One more try: let's get Virtual Handpick on the calendar",
+            "message": (
+                f"Hi {label} team, I've reached out twice now about Virtual Handpick ({call_count} so far). "
+                f"Rather than another note, just reply with a time and I'll get the session booked directly with "
+                f"the supplier for your next order."
+            ),
+        },
+        {
+            "tone": "Warm",
+            "subject": "Let's make it easy: I'll book the session for you",
+            "message": (
+                f"Hi {label} team, I know I've mentioned this a couple of times now, so let's make it easy — "
+                f"just let me know a time that works and I'll get your Virtual Handpick session ({call_count} so "
+                f"far) set up directly with the supplier."
+            ),
+        },
+        {
+            "tone": "Formal",
+            "subject": "A final note on Virtual Handpick, with scheduling support",
+            "message": (
+                f"Dear {label} team, having reached out on two prior occasions regarding Virtual Handpick "
+                f"({call_count} to date), we would be glad to arrange the session directly on your behalf. "
+                f"Please advise a convenient time and we will coordinate with the supplier."
+            ),
+        },
+    ]
+
+
+# The 5 growth levers assigned to "Growth Headroom" accounts in
+# segmentation.py, in the same priority order the pipeline picks among them.
+# Exposed so app.py can offer a manual override dropdown.
+GROWTH_LEVER_ACTIONS = [
+    "Build-a-Bundle nudge",
+    "Bundle nudge",
+    "Offer tool nudge",
+    "Chat nudge",
+    "Video call nudge",
+]
+
+_GROWTH_LEVER_TOUCH_TEMPLATES = {
+    "Build-a-Bundle nudge": (
+        _draft_build_a_bundle_nudge,
+        _draft_build_a_bundle_nudge_touch2,
+        _draft_build_a_bundle_nudge_touch3,
+    ),
+    "Bundle nudge": (_draft_bundle_nudge, _draft_bundle_nudge_touch2, _draft_bundle_nudge_touch3),
+    "Offer tool nudge": (
+        _draft_offer_tool_nudge,
+        _draft_offer_tool_nudge_touch2,
+        _draft_offer_tool_nudge_touch3,
+    ),
+    "Chat nudge": (_draft_chat_nudge, _draft_chat_nudge_touch2, _draft_chat_nudge_touch3),
+    "Video call nudge": (
+        _draft_video_call_nudge,
+        _draft_video_call_nudge_touch2,
+        _draft_video_call_nudge_touch3,
+    ),
+}
+
+
+def draft_growth_lever_stage(row, action: str, touch_count) -> tuple[int, list[dict[str, str]]]:
+    """Select the message variants for one of the 5 Growth Headroom levers
+    matching `touch_count`, mirroring `draft_self_serve_nudge_stage`.
+    Returns `(touch_stage, variants)` where `touch_stage` is 1/2/3.
+
+    `action` need not be the account's auto-selected `row["action"]` — an AM
+    may have overridden to a different lever, in which case the caller is
+    expected to pass touch_count=0 so the override starts at Touch 1."""
+    first_fn, touch2_fn, touch3_fn = _GROWTH_LEVER_TOUCH_TEMPLATES[action]
+
+    if touch_count is None or pd.isna(touch_count) or touch_count <= 0:
+        touch_stage, variants = 1, first_fn(row)
+    elif touch_count == 1:
+        touch_stage, variants = 2, touch2_fn(row)
+    else:
+        touch_stage, variants = 3, touch3_fn(row)
+
+    variants = [dict(variant) for variant in variants]
+    if bool(row.get("is_at_risk")):
+        for variant in variants:
+            variant["message"] = f"{variant['message']}\n\n{AT_RISK_APPEND_SENTENCE}"
+
+    return touch_stage, variants
+
+
+def explain_growth_lever_default(row) -> str:
+    """One-line reason the pipeline auto-selected `row["action"]` among the
+    5 growth levers, for display next to the manual override dropdown.
+    Assumes `row["action"]` is one of GROWTH_LEVER_ACTIONS."""
+    action = row["action"]
+
+    if action == "Build-a-Bundle nudge":
+        handpick = row.get("handpick_orders")
+        bundled = row.get("bundle_orders")
+        handpick_str = "an unclear number of" if handpick is None or pd.isna(handpick) else f"{handpick:.0f}"
+        bundled_str = "an unclear number of" if bundled is None or pd.isna(bundled) else f"{bundled:.0f}"
+        return (
+            f"Auto-selected: handpick orders ({handpick_str}) exceed bundle orders ({bundled_str})."
+        )
+    if action == "Bundle nudge":
+        bundle_pct = _pct(row.get("bundle_gmv_share_pct"))
+        return f"Auto-selected: bundle share is only {bundle_pct} of GMV, with room to grow."
+    if action == "Offer tool nudge":
+        return "Auto-selected: no Make an Offer usage in the last 6 months."
+    if action == "Chat nudge":
+        return "Auto-selected: no chat threads yet, despite above-median order volume for self-serve accounts."
+    if action == "Video call nudge":
+        return (
+            "Auto-selected: no Virtual Handpick requests yet, despite above-median order volume for "
+            "self-serve accounts."
+        )
+    return "Auto-selected by the pipeline."
+
+
 ACTION_TEMPLATES = {
     "Self-Serve Nudge": _draft_migration_play,
     "Win-back play": _draft_win_back_play,
