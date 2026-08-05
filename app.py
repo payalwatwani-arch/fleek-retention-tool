@@ -19,6 +19,7 @@ import pandas as pd
 import streamlit as st
 
 from src.briefing import generate_briefing_text
+from src.nba import draft_self_serve_nudge_stage
 from src.pipeline import run_pipeline
 from src.scoring import compute_health_score
 from src.segmentation import ACCOUNT_MANAGED, SELF_SERVE
@@ -774,8 +775,15 @@ def _render_account_overview(row) -> None:
         st.caption("No action needed.")
     else:
         st.subheader("Drafted outreach")
-        variants = row["draft_variants"]
         st.write(f"**Action:** {row['action']}")
+
+        touch_stage = None
+        if row["action"] == "Self-Serve Nudge":
+            touch_stage, variants = draft_self_serve_nudge_stage(
+                row, row.get("touch_count")
+            )
+        else:
+            variants = row["draft_variants"]
 
         variants_by_tone = {variant["tone"]: variant for variant in variants}
         tone = st.radio(
@@ -785,6 +793,12 @@ def _render_account_overview(row) -> None:
             horizontal=True,
         )
         variant = variants_by_tone[tone]
+
+        if touch_stage is not None:
+            st.markdown(
+                f'<span class="badge badge-mustard">Touch {touch_stage}</span>',
+                unsafe_allow_html=True,
+            )
 
         email_tab, text_tab, call_tab = st.tabs(["Email", "Text", "Call"])
 

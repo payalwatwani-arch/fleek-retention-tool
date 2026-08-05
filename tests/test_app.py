@@ -17,6 +17,7 @@ Pipeline" returns to the board.
 from __future__ import annotations
 
 import shutil
+import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -25,6 +26,7 @@ from streamlit.testing.v1 import AppTest
 
 from app import SEGMENT_DISPLAY_NAMES
 from src.briefing import generate_briefing_text
+from src.nba import TONES
 from src.scoring import compute_health_score
 from src.state import STAGE_ACTIONED, STAGE_FOLLOW_UP, STAGE_NEW, add_note, add_task, DEFAULT_DB_PATH
 
@@ -90,6 +92,25 @@ def _first_n_accounts(df, predicate, n):
     if len(matches) < n:
         pytest.skip(f"demo workbook doesn't have {n} matching accounts to exercise this case")
     return matches.iloc[:n]
+
+
+def _set_touch_count(account_id: str, touch_count: int, status: str = STAGE_FOLLOW_UP) -> None:
+    """Directly mutate the state DB's touch_count for one account, bypassing
+    sync_state() — the Account Overview page reads touch_count fresh on
+    every render, so this simulates "a state row already exists with N
+    prior touches" without needing to fake a full data-change/re-sync
+    cycle."""
+    conn = sqlite3.connect(DEFAULT_DB_PATH)
+    conn.execute(
+        "UPDATE account_state SET status = ?, touch_count = ? WHERE account_id = ?",
+        (status, touch_count, account_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _touch_badges(at: AppTest) -> list[str]:
+    return [m.value for m in at.markdown if "badge-mustard\">Touch" in m.value]
 
 
 def _select_card(at: AppTest, account_id: str) -> AppTest:
@@ -289,6 +310,99 @@ def test_tone_switching_changes_displayed_message(app):
 
     assert warm_message != direct_message
     assert warm_subject != direct_subject
+
+
+# ---------------------------------------------------------------------
+# Self-Serve Nudge touch-count-aware variants (Account Overview only —
+# scoped to this one action type, selected at display time from the
+# account's real touch_count in the state DB).
+# ---------------------------------------------------------------------
+def test_self_serve_nudge_touch_zero_shows_touch_1_label_and_original_message(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    row = _first_account(df, lambda d: d["action"] == "Self-Serve Nudge")
+    account_id = row["account_id"]
+
+    # No state mutation: fresh accounts start at touch_count 0 / "New".
+    at = _open_account(at, account_id)
+
+    assert any(b.endswith('Touch 1</span>') for b in _touch_badges(at))
+    for tone in TONES:
+        tone_radio = at.radio(key=f"tone_{account_id}")
+        at = tone_radio.set_value(tone).run()
+        message = at.text_area(key=f"message_{account_id}_{tone}").value
+        assert "Following up" not in message
+        assert "10%" not in message
+
+
+def test_self_serve_nudge_touch_one_shows_touch_2_label_and_second_touch_message(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    row = _first_account(df, lambda d: d["action"] == "Self-Serve Nudge")
+    account_id = row["account_id"]
+
+    _set_touch_count(account_id, 1)
+    at = _open_account(at, account_id)
+
+    assert any(b.endswith('Touch 2</span>') for b in _touch_badges(at))
+    for tone in TONES:
+        tone_radio = at.radio(key=f"tone_{account_id}")
+        at = tone_radio.set_value(tone).run()
+        message = at.text_area(key=f"message_{account_id}_{tone}").value
+        assert "10%" not in message
+
+
+def test_self_serve_nudge_touch_two_or_more_shows_touch_3_label_and_incentive_message(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    row = _first_account(df, lambda d: d["action"] == "Self-Serve Nudge")
+    account_id = row["account_id"]
+
+    _set_touch_count(account_id, 2)
+    at = _open_account(at, account_id)
+
+    assert any(b.endswith('Touch 3</span>') for b in _touch_badges(at))
+    for tone in TONES:
+        tone_radio = at.radio(key=f"tone_{account_id}")
+        at = tone_radio.set_value(tone).run()
+        message = at.text_area(key=f"message_{account_id}_{tone}").value
+        assert "10%" in message
+
+
+def test_self_serve_nudge_touch_variants_differ_across_stages_for_same_tone(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    row = _first_account(df, lambda d: d["action"] == "Self-Serve Nudge")
+    account_id = row["account_id"]
+
+    at = _open_account(at, account_id)
+    touch1_message = at.text_area(key=f"message_{account_id}_Direct").value
+
+    at = at.button(key="back_to_pipeline").click().run()
+    _set_touch_count(account_id, 1)
+    at = _open_account(at, account_id)
+    touch2_message = at.text_area(key=f"message_{account_id}_Direct").value
+
+    at = at.button(key="back_to_pipeline").click().run()
+    _set_touch_count(account_id, 2)
+    at = _open_account(at, account_id)
+    touch3_message = at.text_area(key=f"message_{account_id}_Direct").value
+
+    assert len({touch1_message, touch2_message, touch3_message}) == 3
+
+
+def test_other_action_types_never_show_touch_label_regardless_of_touch_count(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    row = _first_account(
+        df, lambda d: (d["action"] != "Self-Serve Nudge") & (d["action"] != "None")
+    )
+    account_id = row["account_id"]
+
+    _set_touch_count(account_id, 2)
+    at = _open_account(at, account_id)
+
+    assert _touch_badges(at) == []
 
 
 # ---------------------------------------------------------------------

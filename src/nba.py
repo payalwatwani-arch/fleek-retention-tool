@@ -91,6 +91,127 @@ def _draft_migration_play(row) -> list[dict[str, str]]:
     ]
 
 
+def _draft_migration_play_touch2(row) -> list[dict[str, str]]:
+    """Second-touch variant for Self-Serve Nudge: touch_count == 1, i.e. one
+    prior outreach already happened. Acknowledges the earlier contact rather
+    than repeating the first-touch pitch verbatim."""
+    label = _account_label(row)
+    broker_pct = _pct(row.get("broker_reliance_pct"))
+    return [
+        {
+            "tone": "Direct",
+            "subject": f"Following up: order directly for {label}",
+            "message": (
+                f"Hi {label} team,\n\n"
+                f"Following up on my note last week about self-serve ordering. {broker_pct} of your recent orders "
+                f"are still routed through your account manager, and I'd still love to get you set up with direct "
+                f"ordering — it's faster for routine orders, no waiting on a reply.\n\n"
+                f"Do you have five minutes this week for a quick walkthrough?\n\n"
+                f"Best,\nThe Fleek Team"
+            ),
+        },
+        {
+            "tone": "Warm",
+            "subject": f"Circling back on self-serve ordering for {label}",
+            "message": (
+                f"Hi {label} team,\n\n"
+                f"Just circling back on my note from last week — no worries if it got buried! About {broker_pct} "
+                f"of your recent orders are still going through your account manager, and we'd still love to get "
+                f"you set up with direct ordering whenever it's convenient. It's built to be quicker for routine "
+                f"orders, so you're not waiting on a reply to move.\n\n"
+                f"Any chance you have a few minutes this week for a quick walkthrough?\n\n"
+                f"Best,\nThe Fleek Team"
+            ),
+        },
+        {
+            "tone": "Formal",
+            "subject": f"Following up: streamlining the ordering process for {label}",
+            "message": (
+                f"Dear {label} team,\n\n"
+                f"I am following up on my previous note regarding self-serve ordering. Our records continue to "
+                f"show that approximately {broker_pct} of your recent orders were placed through your account "
+                f"manager rather than directly within the platform. We would welcome the opportunity to walk "
+                f"you through the self-serve ordering tool at your earliest convenience.\n\n"
+                f"Please let me know a time this week that would suit you.\n\n"
+                f"Regards,\nThe Fleek Team"
+            ),
+        },
+    ]
+
+
+def _draft_migration_play_touch3(row) -> list[dict[str, str]]:
+    """Third-attempt variant for Self-Serve Nudge: touch_count >= 2, i.e. two
+    or more prior outreaches. More direct, and pairs the ask with a concrete
+    incentive to finally try self-serve."""
+    label = _account_label(row)
+    broker_pct = _pct(row.get("broker_reliance_pct"))
+    return [
+        {
+            "tone": "Direct",
+            "subject": f"One more try: 10% off your first self-serve order, {label}",
+            "message": (
+                f"Hi {label} team,\n\n"
+                f"I've reached out twice now about moving some of your ordering to self-serve — {broker_pct} of "
+                f"your recent orders are still going through your account manager. To make it worth trying, I can "
+                f"apply 10% off your first order placed directly in the product.\n\n"
+                f"Just reply and I'll get the discount set up on your account.\n\n"
+                f"Best,\nThe Fleek Team"
+            ),
+        },
+        {
+            "tone": "Warm",
+            "subject": f"Let's make it easy, {label}: 10% off your first self-serve order",
+            "message": (
+                f"Hi {label} team,\n\n"
+                f"I know I've mentioned this a couple of times now, so let's make it easy: {broker_pct} of your "
+                f"recent orders are still routed through your account manager, and I'd love for you to give "
+                f"self-serve ordering a real try. As a thank-you for trying it out, I'll apply 10% off your first "
+                f"order placed directly in the product.\n\n"
+                f"Just reply and I'll get that set up for you.\n\n"
+                f"Best,\nThe Fleek Team"
+            ),
+        },
+        {
+            "tone": "Formal",
+            "subject": f"A final note on self-serve ordering for {label}, with an incentive",
+            "message": (
+                f"Dear {label} team,\n\n"
+                f"Having reached out on two prior occasions regarding self-serve ordering, I wanted to make one "
+                f"final, more concrete offer. Approximately {broker_pct} of your recent orders continue to be "
+                f"placed through your account manager. To encourage a first attempt, we are pleased to offer a "
+                f"10% discount on your first order placed directly within the platform.\n\n"
+                f"Please reply at your convenience and we will arrange the discount.\n\n"
+                f"Regards,\nThe Fleek Team"
+            ),
+        },
+    ]
+
+
+def draft_self_serve_nudge_stage(row, touch_count) -> tuple[int, list[dict[str, str]]]:
+    """Select the Self-Serve Nudge message variants matching an account's
+    real `touch_count` from the state database. Returns `(touch_stage,
+    variants)` where `touch_stage` is 1/2/3 (for a "Touch N" display label)
+    and `variants` is the usual list of 3 tone dicts, with the at-risk
+    sentence appended when applicable — mirroring `draft_actions()`'s
+    append behavior, since Self-Serve Nudge isn't in AT_RISK_APPEND_EXEMPT.
+
+    touch_count is None or NaN before a state row exists yet, which is
+    equivalent to touch_count == 0 (first outreach, never actioned)."""
+    if touch_count is None or pd.isna(touch_count) or touch_count <= 0:
+        touch_stage, variants = 1, _draft_migration_play(row)
+    elif touch_count == 1:
+        touch_stage, variants = 2, _draft_migration_play_touch2(row)
+    else:
+        touch_stage, variants = 3, _draft_migration_play_touch3(row)
+
+    variants = [dict(variant) for variant in variants]
+    if bool(row.get("is_at_risk")):
+        for variant in variants:
+            variant["message"] = f"{variant['message']}\n\n{AT_RISK_APPEND_SENTENCE}"
+
+    return touch_stage, variants
+
+
 def _draft_win_back_play(row) -> list[dict[str, str]]:
     label = _account_label(row)
     return [
