@@ -54,12 +54,12 @@ def generate_briefing_text(df: pd.DataFrame, summary: dict) -> str:
     """Markdown briefing: a short narrative plus a "since last run" digest
     of what changed in the state database."""
     self_serve_movable = int((df["action"] == SELF_SERVE_ACTION).sum()) if "action" in df.columns else 0
-    needs_follow_up = int((df["action"] != NO_ACTION).sum()) if "action" in df.columns else 0
+    needs_attention = int((df["action"] != NO_ACTION).sum()) if "action" in df.columns else 0
     top_factor = _top_struggle_factor(df)
 
     narrative = (
         f"Your portfolio has {self_serve_movable} account(s) that could move to self-serve. "
-        f"{needs_follow_up} need a follow-up today."
+        f"{needs_attention} accounts need attention today."
     )
     if top_factor:
         narrative += (

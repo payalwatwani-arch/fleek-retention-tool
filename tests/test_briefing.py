@@ -53,7 +53,7 @@ def test_narrative_counts_self_serve_and_follow_up():
     text = generate_briefing_text(df, _summary(new_count=3))
 
     assert "1 account(s) that could move to self-serve" in text
-    assert "2 need a follow-up today" in text
+    assert "2 accounts need attention today" in text
 
 
 def test_first_run_message():
