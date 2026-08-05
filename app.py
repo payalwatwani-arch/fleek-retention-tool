@@ -104,6 +104,38 @@ h2, h3 {
 .badge-inline-sage { color: #6B8F71; }
 .badge-inline-rust { color: #C1502E; }
 
+/* Pipeline card layout: account id (boldest) -> score+tags (secondary)
+   -> task/note meta rows (smallest, lightest — real status and the
+   empty-state "Add task"/"Add note" prompts share this same weight so an
+   empty state doesn't read as visually broken). */
+.card-line1 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #1C1A17;
+    margin-bottom: 4px;
+    line-height: 1.3;
+}
+.card-line2 {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: #4A4640;
+    margin-bottom: 6px;
+    line-height: 1.6;
+}
+.card-line-meta {
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: #6B655C;
+    line-height: 1.6;
+}
+.card-prompt {
+    color: #B9B2A6;
+    font-weight: 400;
+}
+.card-spacer {
+    margin-bottom: 14px;
+}
+
 /* Stage stepper */
 .stepper-step {
     font-weight: 600;
@@ -392,16 +424,24 @@ def _segment_tags(row) -> list[str]:
     return tags
 
 
-def _note_count_badge_html(count: int) -> str:
-    return f'<span class="tag tag-neutral">Notes: {count}</span>'
+def _note_line_html(count: int) -> str:
+    """Card note row: the real, correctly-pluralized note count, or a
+    lightweight "Add note" prompt when there are no notes yet — adding a
+    note itself happens on the Account Overview page, so this is a label,
+    not a clickable action."""
+    if count == 0:
+        return '<span class="card-prompt">Add note</span>'
+    label = "note" if count == 1 else "notes"
+    return f'<span class="tag tag-neutral">{count} {label}</span>'
 
 
-def _task_status_badge_html(summary: dict) -> str:
-    """Badge for the single most urgent incomplete task, or "" if the
-    account has no open tasks. Overdue reads in rust; anything upcoming
-    (including due today) reads neutral."""
+def _task_line_html(summary: dict) -> str:
+    """Card task row: a badge for the single most urgent incomplete task,
+    or a lightweight "Add task" prompt when the account has no tasks yet.
+    Overdue reads in rust; anything upcoming (including due today) reads
+    neutral."""
     if summary["next_due_date"] is None:
-        return ""
+        return '<span class="card-prompt">Add task</span>'
     due = date.fromisoformat(summary["next_due_date"])
     delta_days = (due - date.today()).days
     if delta_days < 0:
@@ -460,23 +500,17 @@ def _render_card(row) -> None:
     score, factors = compute_health_score(row)
     arrow = "↑" if (factors[0]["direction"] == "up" if factors else True) else "↓"
 
-    tags = " ".join(_tag_html(tag) for tag in _segment_tags(row))
-    status_line = _status_line(row)
-
+    tags_html = " ".join(_tag_html(tag) for tag in _segment_tags(row))
     note_count = len(get_notes(account_id, db_path=DEFAULT_DB_PATH))
     task_summary = get_task_summary(account_id, db_path=DEFAULT_DB_PATH)
-    indicator_badges = []
-    if note_count > 0:
-        indicator_badges.append(_note_count_badge_html(note_count))
-    task_badge = _task_status_badge_html(task_summary)
-    if task_badge:
-        indicator_badges.append(task_badge)
 
-    label = f"**{account_id}**  ·  {_score_badge_html(score, arrow)}  ·  {tags}"
-    if indicator_badges:
-        label += "  ·  " + " ".join(indicator_badges)
-    if status_line:
-        label += f"  ·  {status_line}"
+    label = (
+        f'<div class="card-line1">{html.escape(account_id)}</div>'
+        f'<div class="card-line2">{_score_badge_html(score, arrow)} {tags_html}</div>'
+        f'<div class="card-line-meta">{_task_line_html(task_summary)}</div>'
+        f'<div class="card-line-meta">{_note_line_html(note_count)}</div>'
+        '<div class="card-spacer"></div>'
+    )
 
     selected_ids = st.session_state.selected_account_ids
 

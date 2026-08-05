@@ -61,7 +61,8 @@ def _column_headers(at: AppTest) -> list[str]:
 
 
 def _card_markdown(at: AppTest, account_id: str) -> str:
-    matches = [m.value for m in at.markdown if m.value.startswith(f"**{account_id}**")]
+    marker = f'<div class="card-line1">{account_id}</div>'
+    matches = [m.value for m in at.markdown if marker in m.value]
     assert len(matches) == 1, f"expected exactly one card for {account_id}, found {len(matches)}"
     return matches[0]
 
@@ -495,7 +496,7 @@ def test_note_count_badge_shows_on_card_when_notes_exist(app):
     at = at.run()
 
     card = _card_markdown(at, account_id)
-    assert 'class="tag tag-neutral">Notes: 1</span>' in card
+    assert 'class="tag tag-neutral">1 note</span>' in card
 
 
 def test_completing_a_task_removes_it_from_incomplete_and_updates_card_badge(app):
