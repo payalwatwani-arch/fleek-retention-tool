@@ -84,7 +84,8 @@ h2, h3 {
     display: inline-block;
     padding: 2px 10px;
     border-radius: 12px;
-    font-weight: 700;
+    font-size: 0.75rem;
+    font-weight: 500;
 }
 .badge-sage    { background: #6B8F71; color: #FDFBF6; }
 .badge-mustard { background: #D9A800; color: #FDFBF6; }
