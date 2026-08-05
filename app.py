@@ -496,7 +496,23 @@ def _status_line(row) -> str:
 STATUS_FILTER_SEGMENTS = {
     "At Risk": "Declining",
     "Gone Cold": "Already Gone",
+    "Healthy": ["Healthy AM", "Self-Serve, No Headroom"],
 }
+
+
+def _status_filter_mask(df, status: str):
+    """Boolean mask for the Status dropdown. "At Risk"/"Gone Cold" match
+    either the primary segment or the secondary at-risk flag, so accounts
+    tagged at-risk under a different primary segment aren't missed."""
+    if status == "At Risk":
+        return (df["segment"] == "Declining") | (
+            df["is_at_risk"] & (df["at_risk_detail"] == "Declining")
+        )
+    if status == "Gone Cold":
+        return (df["segment"] == "Already Gone") | (
+            df["is_at_risk"] & (df["at_risk_detail"] == "Already Gone")
+        )
+    return df["segment"].isin(STATUS_FILTER_SEGMENTS["Healthy"])
 
 
 def _apply_filters(df, region: str, persona: str, ownership: str, status: str):
@@ -508,7 +524,7 @@ def _apply_filters(df, region: str, persona: str, ownership: str, status: str):
     if ownership != "All":
         filtered = filtered[filtered["ownership"] == ownership]
     if status != "All":
-        filtered = filtered[filtered["segment"] == STATUS_FILTER_SEGMENTS[status]]
+        filtered = filtered[_status_filter_mask(filtered, status)]
     return filtered
 
 

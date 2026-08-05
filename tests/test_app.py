@@ -823,14 +823,19 @@ def test_filter_bar_has_region_persona_ownership_and_status_controls(app):
     labels = {sb.label for sb in at.selectbox}
     assert {"Region", "Buyer persona", "Ownership", "Status"} <= labels
     status_select = [s for s in at.selectbox if s.label == "Status"][0]
-    assert status_select.options == ["All", "At Risk", "Gone Cold"]
+    assert status_select.options == ["All", "At Risk", "Gone Cold", "Healthy"]
     assert status_select.value == "All"
 
 
 def test_status_filter_at_risk_narrows_board_and_updates_counts(app):
     at = _open_pipeline(app)
     df = at.session_state.df
-    expected = int((df["segment"] == "Declining").sum())
+    expected = int(
+        (
+            (df["segment"] == "Declining")
+            | (df["is_at_risk"] & (df["at_risk_detail"] == "Declining"))
+        ).sum()
+    )
     if expected == 0 or expected == len(df):
         pytest.skip("demo workbook doesn't give a meaningful at-risk split to test")
 
@@ -842,15 +847,56 @@ def test_status_filter_at_risk_narrows_board_and_updates_counts(app):
     assert f"**New ({expected})**" in headers
 
 
+def test_status_filter_at_risk_includes_secondary_at_risk_flag(app):
+    """An account whose PRIMARY segment isn't "Declining" (e.g.
+    Broker-Reliant) but that also carries the at-risk signal as a
+    secondary flag must still show up under "At Risk" - the filter
+    shouldn't only look at the primary segment."""
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    row = _first_account(
+        df,
+        lambda d: (d["segment"] != "Declining")
+        & d["is_at_risk"]
+        & (d["at_risk_detail"] == "Declining"),
+    )
+
+    status_select = [s for s in at.selectbox if s.label == "Status"][0]
+    at = status_select.set_value("At Risk").run()
+    assert not at.exception
+
+    assert _card_markdown(at, row["account_id"])
+
+
 def test_status_filter_gone_cold_narrows_board_and_updates_counts(app):
     at = _open_pipeline(app)
     df = at.session_state.df
-    expected = int((df["segment"] == "Already Gone").sum())
+    expected = int(
+        (
+            (df["segment"] == "Already Gone")
+            | (df["is_at_risk"] & (df["at_risk_detail"] == "Already Gone"))
+        ).sum()
+    )
     if expected == 0 or expected == len(df):
         pytest.skip("demo workbook doesn't give a meaningful gone-cold split to test")
 
     status_select = [s for s in at.selectbox if s.label == "Status"][0]
     at = status_select.set_value("Gone Cold").run()
+    assert not at.exception
+
+    headers = _column_headers(at)
+    assert f"**New ({expected})**" in headers
+
+
+def test_status_filter_healthy_shows_only_no_action_accounts(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    expected = int(df["segment"].isin(["Healthy AM", "Self-Serve, No Headroom"]).sum())
+    if expected == 0 or expected == len(df):
+        pytest.skip("demo workbook doesn't give a meaningful healthy split to test")
+
+    status_select = [s for s in at.selectbox if s.label == "Status"][0]
+    at = status_select.set_value("Healthy").run()
     assert not at.exception
 
     headers = _column_headers(at)
