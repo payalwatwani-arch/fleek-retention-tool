@@ -151,10 +151,23 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
     border-radius: 10px;
 }
 
+/* Pipeline cards only (identified by their st.container(key=f"card_...")):
+   a fixed min-height so every card in a column lines up regardless of
+   content. Sized to comfortably fit the max realistic case -- 2 tags +
+   status line + task line + note line + button -- so short-content cards
+   just get extra whitespace below the button instead of a ragged column.
+   Targets the bordered block itself directly (this Streamlit version
+   doesn't emit a separate stVerticalBlockBorderWrapper testid), scoped by
+   its own container key so it doesn't affect other bordered containers
+   (Account Overview boxes, notes/tasks lists). */
+div[data-testid="stVerticalBlock"][class*="st-key-card_"] {
+    min-height: 230px;
+}
+
 /* Spacer above the card's "View details ->" button. Anchored to the
    button itself (not to whatever content happens to precede it) so the
    gap is unconditional -- present whether the card's last line above the
-   button is tags alone, tags + task badge, tags + note badge, or both. */
+   button is tags alone, tags + task line, tags + note line, or both. */
 div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stButton"] {
     margin-top: 12px;
 }
@@ -460,11 +473,13 @@ def _task_status_text(summary: dict) -> str:
 
 
 def _status_line(row) -> str:
-    """Card status text: stage-driven, except "New" is always blank and a
-    resolved ("None") action always reads as no-action-needed regardless
-    of which post-New stage it settled in."""
+    """Card status text: stage-driven, except "New" always reads as the
+    "not yet actioned" placeholder (so every card fills this line, whether
+    with real status or a placeholder) and a resolved ("None") action
+    always reads as no-action-needed regardless of which post-New stage it
+    settled in."""
     if row["status"] == STAGE_NEW:
-        return ""
+        return "Not yet actioned"
     if row["action"] == NO_ACTION:
         return "No action needed"
     if row["status"] == STAGE_ACTIONED:
@@ -510,25 +525,26 @@ def _render_card(row) -> None:
 
     note_count = len(get_notes(account_id, db_path=DEFAULT_DB_PATH))
     task_summary = get_task_summary(account_id, db_path=DEFAULT_DB_PATH)
-    meta_parts = [_note_count_text(note_count) if note_count > 0 else "Add note"]
     task_text = _task_status_text(task_summary)
-    meta_parts.append(task_text if task_text else "Add task")
+    task_label = task_text if task_text else "Add task"
+    note_label = _note_count_text(note_count) if note_count > 0 else "Add note"
 
     # Line 1 (loudest): account_id + health score badge only.
     label = f'<div class="card-line1">{html.escape(account_id)}  ·  {_score_badge_html(score, arrow)}</div>'
     # Line 2 (secondary): segment / at-risk tags.
     if tags:
         label += f'<div class="card-tags">{tags}</div>'
-    # Line 3 (tertiary): plain status text, always labeled — no bare dates.
-    if status_line:
-        label += f'<div class="card-status">{html.escape(status_line)}</div>'
-    # Line 4 (quietest): note count / task due, plain text, no pills.
-    if meta_parts:
-        label += f'<div class="card-meta">{" · ".join(meta_parts)}</div>'
+    # Line 3 (tertiary): plain status text, always labeled -- no bare dates.
+    # "New" cards get the "Not yet actioned" placeholder here instead of
+    # nothing, so every card has the same number of lines.
+    label += f'<div class="card-status">{html.escape(status_line)}</div>'
+    # Line 4 (quietest): task due, above the note count -- plain text, no pills.
+    label += f'<div class="card-meta">{task_label}</div>'
+    label += f'<div class="card-meta">{html.escape(note_label)}</div>'
 
     selected_ids = st.session_state.selected_account_ids
 
-    with st.container(border=True):
+    with st.container(border=True, key=f"card_{account_id}"):
         checkbox_col, label_col = st.columns([1, 9])
         with checkbox_col:
             checked = st.checkbox(

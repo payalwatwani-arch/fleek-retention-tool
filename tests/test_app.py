@@ -180,12 +180,13 @@ def test_card_omits_duplicate_tag_when_at_risk_detail_equals_segment(app):
     assert card.count(f">{SEGMENT_DISPLAY_NAMES.get(row['segment'], row['segment'])}</span>") == 1
 
 
-def test_new_account_status_line_is_blank(app):
+def test_new_account_status_line_shows_not_yet_actioned_placeholder(app):
     at = _open_pipeline(app)
     df = at.session_state.df
 
     row = df.iloc[0]
     card = _card_markdown(at, row["account_id"])
+    assert '<div class="card-status">Not yet actioned</div>' in card
     assert "Actioned" not in card
     assert "Follow-up needed" not in card
 
@@ -477,7 +478,8 @@ def test_task_card_badge_shows_due_in_n_days_neutral(app):
     at = at.run()
 
     card = _card_markdown(at, account_id)
-    assert '<div class="card-meta">Add note · Due in 3 days</div>' in card
+    assert '<div class="card-meta">Due in 3 days</div>' in card
+    assert '<div class="card-meta">Add note</div>' in card
 
 
 def test_task_card_badge_absent_when_no_tasks(app):
@@ -488,7 +490,8 @@ def test_task_card_badge_absent_when_no_tasks(app):
     card = _card_markdown(at, account_id)
     assert "Due in" not in card
     assert "Overdue" not in card
-    assert '<div class="card-meta">Add note · Add task</div>' in card
+    assert '<div class="card-meta">Add task</div>' in card
+    assert '<div class="card-meta">Add note</div>' in card
 
 
 def test_note_count_badge_shows_on_card_when_notes_exist(app):
@@ -500,7 +503,8 @@ def test_note_count_badge_shows_on_card_when_notes_exist(app):
     at = at.run()
 
     card = _card_markdown(at, account_id)
-    assert '<div class="card-meta">1 note · Add task</div>' in card
+    assert '<div class="card-meta">Add task</div>' in card
+    assert '<div class="card-meta">1 note</div>' in card
 
 
 def test_completing_a_task_removes_it_from_incomplete_and_updates_card_badge(app):
