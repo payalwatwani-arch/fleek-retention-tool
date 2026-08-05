@@ -488,7 +488,13 @@ def _status_line(row) -> str:
     return f"Follow-up needed (touch {row['touch_count']})"
 
 
-def _apply_filters(df, region: str, persona: str, ownership: str, at_risk_only: bool):
+STATUS_FILTER_SEGMENTS = {
+    "At Risk": "Declining",
+    "Gone Cold": "Already Gone",
+}
+
+
+def _apply_filters(df, region: str, persona: str, ownership: str, status: str):
     filtered = df
     if region != "All":
         filtered = filtered[filtered["region"] == region]
@@ -496,8 +502,8 @@ def _apply_filters(df, region: str, persona: str, ownership: str, at_risk_only: 
         filtered = filtered[filtered["buyer_persona"] == persona]
     if ownership != "All":
         filtered = filtered[filtered["ownership"] == ownership]
-    if at_risk_only:
-        filtered = filtered[filtered["is_at_risk"] == True]  # noqa: E712
+    if status != "All":
+        filtered = filtered[filtered["segment"] == STATUS_FILTER_SEGMENTS[status]]
     return filtered
 
 
@@ -985,7 +991,7 @@ elif view == "Pipeline":
     else:
         st.header("Pipeline")
 
-        icon_col, region_col, persona_col, ownership_col, at_risk_col = st.columns(
+        icon_col, region_col, persona_col, ownership_col, status_col = st.columns(
             [1.1, 2, 2, 2, 1.5]
         )
         with icon_col:
@@ -1001,11 +1007,10 @@ elif view == "Pipeline":
             )
         with ownership_col:
             ownership = st.selectbox("Ownership", ["All", ACCOUNT_MANAGED, SELF_SERVE])
-        with at_risk_col:
-            st.markdown("&nbsp;")
-            at_risk_only = st.checkbox("At-risk only")
+        with status_col:
+            status = st.selectbox("Status", ["All"] + list(STATUS_FILTER_SEGMENTS.keys()))
 
-        filtered_df = _apply_filters(df, region, persona, ownership, at_risk_only)
+        filtered_df = _apply_filters(df, region, persona, ownership, status)
 
         _apply_pending_checkbox_clear()
 

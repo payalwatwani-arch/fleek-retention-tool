@@ -701,26 +701,43 @@ def test_undo_reverts_actioned_card_back_to_new(app):
 # ---------------------------------------------------------------------
 # Filters
 # ---------------------------------------------------------------------
-def test_filter_bar_has_region_persona_ownership_and_at_risk_controls(app):
+def test_filter_bar_has_region_persona_ownership_and_status_controls(app):
     at = _open_pipeline(app)
     labels = {sb.label for sb in at.selectbox}
-    assert {"Region", "Buyer persona", "Ownership"} <= labels
-    assert any(cb.label == "At-risk only" for cb in at.checkbox)
+    assert {"Region", "Buyer persona", "Ownership", "Status"} <= labels
+    status_select = [s for s in at.selectbox if s.label == "Status"][0]
+    assert status_select.options == ["All", "At Risk", "Gone Cold"]
+    assert status_select.value == "All"
 
 
-def test_at_risk_only_filter_narrows_board_and_updates_counts(app):
+def test_status_filter_at_risk_narrows_board_and_updates_counts(app):
     at = _open_pipeline(app)
     df = at.session_state.df
-    expected_at_risk = int((df["is_at_risk"] == True).sum())  # noqa: E712
-    if expected_at_risk == 0 or expected_at_risk == len(df):
+    expected = int((df["segment"] == "Declining").sum())
+    if expected == 0 or expected == len(df):
         pytest.skip("demo workbook doesn't give a meaningful at-risk split to test")
 
-    at_risk_checkbox = [c for c in at.checkbox if c.label == "At-risk only"][0]
-    at = at_risk_checkbox.set_value(True).run()
+    status_select = [s for s in at.selectbox if s.label == "Status"][0]
+    at = status_select.set_value("At Risk").run()
     assert not at.exception
 
     headers = _column_headers(at)
-    assert f"**New ({expected_at_risk})**" in headers
+    assert f"**New ({expected})**" in headers
+
+
+def test_status_filter_gone_cold_narrows_board_and_updates_counts(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    expected = int((df["segment"] == "Already Gone").sum())
+    if expected == 0 or expected == len(df):
+        pytest.skip("demo workbook doesn't give a meaningful gone-cold split to test")
+
+    status_select = [s for s in at.selectbox if s.label == "Status"][0]
+    at = status_select.set_value("Gone Cold").run()
+    assert not at.exception
+
+    headers = _column_headers(at)
+    assert f"**New ({expected})**" in headers
 
 
 def test_region_filter_narrows_board_and_updates_counts(app):
