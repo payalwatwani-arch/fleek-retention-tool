@@ -7,6 +7,8 @@ points state.py at a fresh, isolated sqlite file per test.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import pandas as pd
 import pytest
 
@@ -15,9 +17,13 @@ from src.state import (
     STAGE_FOLLOW_UP,
     STAGE_NEW,
     add_note,
+    add_task,
+    complete_task,
     get_by_stage,
     get_notes,
     get_state_summary,
+    get_task_summary,
+    get_tasks,
     mark_actioned,
     sync_state,
     undo_action,
@@ -391,3 +397,115 @@ def test_notes_survive_sync_state_reruns(db_path):
     assert [n["text"] for n in get_notes("ACC-001", db_path=db_path)] == [
         "A note before a rerun"
     ]
+
+
+# ---------------------------------------------------------------------
+# Tasks
+# ---------------------------------------------------------------------
+def test_get_tasks_on_account_with_no_tasks_is_empty(db_path):
+    assert get_tasks("ACC-001", db_path=db_path) == []
+
+
+def test_add_task_then_get_tasks_returns_it(db_path):
+    add_task("ACC-001", "Call the AM", date(2026, 8, 10), db_path=db_path)
+
+    tasks = get_tasks("ACC-001", db_path=db_path)
+    assert len(tasks) == 1
+    assert tasks[0]["text"] == "Call the AM"
+    assert tasks[0]["due_date"] == "2026-08-10"
+    assert tasks[0]["completed"] is False
+    assert tasks[0]["created_date"]
+
+
+def test_add_task_accepts_iso_string_due_date(db_path):
+    add_task("ACC-001", "Send follow-up email", "2026-09-01", db_path=db_path)
+
+    tasks = get_tasks("ACC-001", db_path=db_path)
+    assert tasks[0]["due_date"] == "2026-09-01"
+
+
+def test_add_task_with_blank_text_is_a_no_op(db_path):
+    add_task("ACC-001", "   ", date(2026, 8, 10), db_path=db_path)
+    assert get_tasks("ACC-001", db_path=db_path) == []
+
+
+def test_get_tasks_sorts_incomplete_first_then_by_due_date_ascending(db_path):
+    add_task("ACC-001", "Due later", date(2026, 9, 1), db_path=db_path)
+    add_task("ACC-001", "Due soonest", date(2026, 8, 1), db_path=db_path)
+    add_task("ACC-001", "Due middle", date(2026, 8, 15), db_path=db_path)
+
+    tasks = get_tasks("ACC-001", db_path=db_path)
+    complete_task(tasks[0]["task_id"], db_path=db_path)  # completes "Due soonest"
+
+    tasks = get_tasks("ACC-001", db_path=db_path)
+    assert [t["text"] for t in tasks] == ["Due middle", "Due later", "Due soonest"]
+    assert [t["completed"] for t in tasks] == [False, False, True]
+
+
+def test_complete_task_marks_it_done(db_path):
+    add_task("ACC-001", "Call the AM", date(2026, 8, 10), db_path=db_path)
+    task_id = get_tasks("ACC-001", db_path=db_path)[0]["task_id"]
+
+    complete_task(task_id, db_path=db_path)
+
+    tasks = get_tasks("ACC-001", db_path=db_path)
+    assert tasks[0]["completed"] is True
+
+
+def test_tasks_are_isolated_per_account(db_path):
+    add_task("ACC-001", "Task for 001", date(2026, 8, 10), db_path=db_path)
+    add_task("ACC-002", "Task for 002", date(2026, 8, 10), db_path=db_path)
+
+    assert [t["text"] for t in get_tasks("ACC-001", db_path=db_path)] == ["Task for 001"]
+    assert [t["text"] for t in get_tasks("ACC-002", db_path=db_path)] == ["Task for 002"]
+
+
+def test_task_summary_with_no_tasks(db_path):
+    assert get_task_summary("ACC-001", db_path=db_path) == {
+        "has_overdue": False,
+        "next_due_date": None,
+        "incomplete_count": 0,
+    }
+
+
+def test_task_summary_detects_overdue_task(db_path):
+    yesterday = date.today() - timedelta(days=1)
+    add_task("ACC-001", "Overdue task", yesterday, db_path=db_path)
+
+    summary = get_task_summary("ACC-001", db_path=db_path)
+    assert summary["has_overdue"] is True
+    assert summary["next_due_date"] == yesterday.isoformat()
+    assert summary["incomplete_count"] == 1
+
+
+def test_task_summary_next_due_date_is_soonest_incomplete_task(db_path):
+    add_task("ACC-001", "Later task", date.today() + timedelta(days=10), db_path=db_path)
+    add_task("ACC-001", "Soonest task", date.today() + timedelta(days=2), db_path=db_path)
+
+    summary = get_task_summary("ACC-001", db_path=db_path)
+    assert summary["has_overdue"] is False
+    assert summary["next_due_date"] == (date.today() + timedelta(days=2)).isoformat()
+    assert summary["incomplete_count"] == 2
+
+
+def test_task_summary_ignores_completed_tasks(db_path):
+    add_task("ACC-001", "Overdue but done", date.today() - timedelta(days=1), db_path=db_path)
+    task_id = get_tasks("ACC-001", db_path=db_path)[0]["task_id"]
+    complete_task(task_id, db_path=db_path)
+
+    summary = get_task_summary("ACC-001", db_path=db_path)
+    assert summary == {
+        "has_overdue": False,
+        "next_due_date": None,
+        "incomplete_count": 0,
+    }
+
+
+def test_task_summary_incomplete_count_excludes_completed(db_path):
+    add_task("ACC-001", "Open 1", date.today() + timedelta(days=1), db_path=db_path)
+    add_task("ACC-001", "Open 2", date.today() + timedelta(days=2), db_path=db_path)
+    add_task("ACC-001", "Done", date.today() + timedelta(days=3), db_path=db_path)
+    complete_task(get_tasks("ACC-001", db_path=db_path)[-1]["task_id"], db_path=db_path)
+
+    summary = get_task_summary("ACC-001", db_path=db_path)
+    assert summary["incomplete_count"] == 2

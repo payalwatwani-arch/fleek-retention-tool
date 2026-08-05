@@ -86,12 +86,28 @@ CREATE TABLE IF NOT EXISTS account_state (
 );
 """
 
+# Tasks are a distinct concept from notes: a task carries a due date and a
+# completion state, rather than being a free-text log entry. Kept in their
+# own table (one row per task, several per account) rather than folded into
+# account_state's JSON columns.
+_TASKS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS tasks (
+  task_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id TEXT NOT NULL,
+  text TEXT NOT NULL,
+  due_date TEXT NOT NULL,
+  completed INTEGER NOT NULL DEFAULT 0,
+  created_date TEXT NOT NULL
+);
+"""
+
 
 def _connect(db_path) -> sqlite3.Connection:
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.execute(_SCHEMA)
+    conn.execute(_TASKS_SCHEMA)
     # `notes` was added after the original table shipped, so existing DBs
     # need a migration — CREATE TABLE IF NOT EXISTS alone won't add it.
     try:
@@ -293,6 +309,75 @@ def get_notes(account_id: str, db_path=DEFAULT_DB_PATH) -> list[dict]:
     if row is None or not row[0]:
         return []
     return list(reversed(json.loads(row[0])))
+
+
+def add_task(account_id: str, text: str, due_date, db_path=DEFAULT_DB_PATH) -> None:
+    """Create a new open task for an account. `due_date` may be a `date` or
+    an ISO ("YYYY-MM-DD") string. No-op if `text` is blank."""
+    text = text.strip()
+    if not text:
+        return
+    if isinstance(due_date, date):
+        due_date = due_date.isoformat()
+    with closing(_connect(db_path)) as conn:
+        conn.execute(
+            "INSERT INTO tasks (account_id, text, due_date, completed, created_date) "
+            "VALUES (?, ?, ?, 0, ?)",
+            (account_id, text, due_date, _today()),
+        )
+        conn.commit()
+
+
+def get_tasks(account_id: str, db_path=DEFAULT_DB_PATH) -> list[dict]:
+    """Return this account's tasks as a list of {"task_id", "account_id",
+    "text", "due_date", "completed", "created_date"} dicts: incomplete tasks
+    first, sorted by due_date ascending within each group."""
+    with closing(_connect(db_path)) as conn:
+        cur = conn.execute(
+            "SELECT task_id, account_id, text, due_date, completed, created_date "
+            "FROM tasks WHERE account_id = ? ORDER BY completed ASC, due_date ASC",
+            (account_id,),
+        )
+        rows = cur.fetchall()
+
+    return [
+        {
+            "task_id": task_id,
+            "account_id": acc_id,
+            "text": text,
+            "due_date": due_date,
+            "completed": bool(completed),
+            "created_date": created_date,
+        }
+        for task_id, acc_id, text, due_date, completed, created_date in rows
+    ]
+
+
+def complete_task(task_id: int, db_path=DEFAULT_DB_PATH) -> None:
+    """Mark one task done."""
+    with closing(_connect(db_path)) as conn:
+        conn.execute("UPDATE tasks SET completed = 1 WHERE task_id = ?", (task_id,))
+        conn.commit()
+
+
+def get_task_summary(account_id: str, db_path=DEFAULT_DB_PATH) -> dict:
+    """Return {"has_overdue", "next_due_date", "incomplete_count"} for one
+    account's incomplete tasks. `next_due_date` is the soonest incomplete
+    task's due date (an ISO string), or None if there are no open tasks."""
+    today = _today()
+    with closing(_connect(db_path)) as conn:
+        cur = conn.execute(
+            "SELECT due_date FROM tasks WHERE account_id = ? AND completed = 0 "
+            "ORDER BY due_date ASC",
+            (account_id,),
+        )
+        due_dates = [row[0] for row in cur.fetchall()]
+
+    return {
+        "has_overdue": any(due < today for due in due_dates),
+        "next_due_date": due_dates[0] if due_dates else None,
+        "incomplete_count": len(due_dates),
+    }
 
 
 def get_by_stage(stage: str, db_path=DEFAULT_DB_PATH) -> pd.DataFrame:

@@ -28,8 +28,12 @@ from src.state import (
     STAGE_FOLLOW_UP,
     STAGE_NEW,
     add_note,
+    add_task,
+    complete_task,
     get_by_stage,
     get_notes,
+    get_task_summary,
+    get_tasks,
     mark_actioned,
     undo_action,
 )
@@ -78,6 +82,7 @@ h2, h3 {
 .tag-sage    { background: #E4EDE5; color: #3F5B43; border: 1px solid #6B8F71; }
 .tag-mustard { background: #FBEFC2; color: #7A5C00; border: 1px solid #D9A800; }
 .tag-rust    { background: #F6DCD2; color: #7A2F16; border: 1px solid #C1502E; }
+.tag-neutral { background: #EFEAE0; color: #4A4640; border: 1px solid #B9B2A6; }
 
 /* Health score badge */
 .badge {
@@ -387,6 +392,28 @@ def _segment_tags(row) -> list[str]:
     return tags
 
 
+def _note_count_badge_html(count: int) -> str:
+    return f'<span class="tag tag-neutral">Notes: {count}</span>'
+
+
+def _task_status_badge_html(summary: dict) -> str:
+    """Badge for the single most urgent incomplete task, or "" if the
+    account has no open tasks. Overdue reads in rust; anything upcoming
+    (including due today) reads neutral."""
+    if summary["next_due_date"] is None:
+        return ""
+    due = date.fromisoformat(summary["next_due_date"])
+    delta_days = (due - date.today()).days
+    if delta_days < 0:
+        days = abs(delta_days)
+        label = f"Overdue by {days} day{'s' if days != 1 else ''}"
+        return f'<span class="tag tag-rust">{label}</span>'
+    if delta_days == 0:
+        return '<span class="tag tag-neutral">Due today</span>'
+    label = f"Due in {delta_days} day{'s' if delta_days != 1 else ''}"
+    return f'<span class="tag tag-neutral">{label}</span>'
+
+
 def _status_line(row) -> str:
     """Card status text: stage-driven, except "New" is always blank and a
     resolved ("None") action always reads as no-action-needed regardless
@@ -436,7 +463,18 @@ def _render_card(row) -> None:
     tags = " ".join(_tag_html(tag) for tag in _segment_tags(row))
     status_line = _status_line(row)
 
+    note_count = len(get_notes(account_id, db_path=DEFAULT_DB_PATH))
+    task_summary = get_task_summary(account_id, db_path=DEFAULT_DB_PATH)
+    indicator_badges = []
+    if note_count > 0:
+        indicator_badges.append(_note_count_badge_html(note_count))
+    task_badge = _task_status_badge_html(task_summary)
+    if task_badge:
+        indicator_badges.append(task_badge)
+
     label = f"**{account_id}**  ·  {_score_badge_html(score, arrow)}  ·  {tags}"
+    if indicator_badges:
+        label += "  ·  " + " ".join(indicator_badges)
     if status_line:
         label += f"  ·  {status_line}"
 
@@ -720,6 +758,60 @@ def _render_account_overview(row) -> None:
                 st.write(note["text"])
         else:
             st.caption("No notes yet.")
+
+    st.divider()
+    st.subheader("Tasks")
+    with st.container(border=True):
+        with st.form(key=f"task_form_{account_id}", clear_on_submit=True):
+            text_col, due_col = st.columns([3, 1])
+            new_task_text = text_col.text_input("Add a task", key=f"new_task_{account_id}")
+            new_task_due = due_col.date_input(
+                "Due date", value=date.today(), key=f"new_task_due_{account_id}"
+            )
+            submitted_task = st.form_submit_button("Add task", key=f"submit_task_{account_id}")
+            if submitted_task and new_task_text.strip():
+                add_task(account_id, new_task_text, new_task_due, db_path=DEFAULT_DB_PATH)
+                st.rerun()
+
+        tasks = get_tasks(account_id, db_path=DEFAULT_DB_PATH)
+        incomplete_tasks = [t for t in tasks if not t["completed"]]
+        completed_tasks = [t for t in tasks if t["completed"]]
+
+        if incomplete_tasks:
+            today = date.today()
+            for task in incomplete_tasks:
+                due = date.fromisoformat(task["due_date"])
+                overdue = due < today
+                check_col, task_col = st.columns([1, 9])
+                with check_col:
+                    done = st.checkbox(
+                        "Done",
+                        value=False,
+                        key=f"complete_task_{task['task_id']}",
+                        label_visibility="collapsed",
+                    )
+                with task_col:
+                    due_class = "tag-rust" if overdue else "tag-neutral"
+                    due_label = f"{'Overdue' if overdue else 'Due'}: {task['due_date']}"
+                    st.markdown(
+                        f"{html.escape(task['text'])} "
+                        f'<span class="tag {due_class}">{due_label}</span>',
+                        unsafe_allow_html=True,
+                    )
+                if done:
+                    complete_task(task["task_id"], db_path=DEFAULT_DB_PATH)
+                    st.rerun()
+        else:
+            st.caption("No open tasks.")
+
+        if completed_tasks:
+            st.caption("Completed")
+            for task in completed_tasks:
+                st.markdown(
+                    f'<span style="color: #B9B2A6; text-decoration: line-through;">'
+                    f'{html.escape(task["text"])} — {task["due_date"]}</span>',
+                    unsafe_allow_html=True,
+                )
 
     # "No action needed" accounts are driven purely by the pipeline's own
     # resolution (segment/action moving them to a neutral state) -- same as

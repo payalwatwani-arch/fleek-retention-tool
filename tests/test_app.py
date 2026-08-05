@@ -17,7 +17,7 @@ Pipeline" returns to the board.
 from __future__ import annotations
 
 import shutil
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -25,7 +25,7 @@ from streamlit.testing.v1 import AppTest
 
 from src.briefing import generate_briefing_text
 from src.scoring import compute_health_score
-from src.state import STAGE_ACTIONED, STAGE_FOLLOW_UP, STAGE_NEW
+from src.state import STAGE_ACTIONED, STAGE_FOLLOW_UP, STAGE_NEW, add_note, add_task, DEFAULT_DB_PATH
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 APP_PATH = PROJECT_ROOT / "app.py"
@@ -424,6 +424,106 @@ def test_adding_a_note_persists_and_displays_most_recent_first(app):
     assert "First note" in markdown_values
     assert "Second note" in markdown_values
     assert markdown_values.index("Second note") < markdown_values.index("First note")
+
+
+# ---------------------------------------------------------------------
+# Tasks
+# ---------------------------------------------------------------------
+def test_adding_a_task_shows_it_under_open_tasks(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    row = df.iloc[0]
+    account_id = row["account_id"]
+    at = _open_account(at, account_id)
+
+    assert "No open tasks." in [c.value for c in at.caption]
+
+    due = date.today() + timedelta(days=5)
+    at.text_input(key=f"new_task_{account_id}").set_value("Follow up call")
+    at.date_input(key=f"new_task_due_{account_id}").set_value(due)
+    at = at.button(key=f"submit_task_{account_id}").click().run()
+    assert not at.exception
+
+    markdown_values = " ".join(m.value for m in at.markdown)
+    assert "Follow up call" in markdown_values
+    assert f"Due: {due.isoformat()}" in markdown_values
+    assert "No open tasks." not in [c.value for c in at.caption]
+
+
+def test_task_card_badge_shows_overdue_in_rust(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    account_id = df.iloc[0]["account_id"]
+
+    yesterday = date.today() - timedelta(days=1)
+    add_task(account_id, "Overdue task", yesterday, db_path=DEFAULT_DB_PATH)
+    at = at.run()
+
+    card = _card_markdown(at, account_id)
+    assert "Overdue by 1 day" in card
+    assert 'class="tag tag-rust">Overdue by 1 day</span>' in card
+
+
+def test_task_card_badge_shows_due_in_n_days_neutral(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    account_id = df.iloc[0]["account_id"]
+
+    add_task(account_id, "Upcoming task", date.today() + timedelta(days=3), db_path=DEFAULT_DB_PATH)
+    at = at.run()
+
+    card = _card_markdown(at, account_id)
+    assert 'class="tag tag-neutral">Due in 3 days</span>' in card
+
+
+def test_task_card_badge_absent_when_no_tasks(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    account_id = df.iloc[0]["account_id"]
+
+    card = _card_markdown(at, account_id)
+    assert "Due in" not in card
+    assert "Overdue" not in card
+
+
+def test_note_count_badge_shows_on_card_when_notes_exist(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    account_id = df.iloc[0]["account_id"]
+
+    add_note(account_id, "Called the AM", db_path=DEFAULT_DB_PATH)
+    at = at.run()
+
+    card = _card_markdown(at, account_id)
+    assert 'class="tag tag-neutral">Notes: 1</span>' in card
+
+
+def test_completing_a_task_removes_it_from_incomplete_and_updates_card_badge(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    account_id = df.iloc[0]["account_id"]
+
+    yesterday = date.today() - timedelta(days=1)
+    add_task(account_id, "Overdue task", yesterday, db_path=DEFAULT_DB_PATH)
+    at = at.run()
+
+    card = _card_markdown(at, account_id)
+    assert "Overdue by 1 day" in card
+
+    at = _open_account(at, account_id)
+    complete_checkboxes = [cb for cb in at.checkbox if cb.key.startswith("complete_task_")]
+    assert len(complete_checkboxes) == 1
+    at = complete_checkboxes[0].set_value(True).run()
+    assert not at.exception
+
+    assert "No open tasks." in [c.value for c in at.caption]
+    markdown_values = " ".join(m.value for m in at.markdown)
+    assert "Overdue task" in markdown_values  # now shown under Completed
+
+    at = at.button(key="back_to_pipeline").click().run()
+    card = _card_markdown(at, account_id)
+    assert "Overdue" not in card
+    assert "Due in" not in card
 
 
 # ---------------------------------------------------------------------
