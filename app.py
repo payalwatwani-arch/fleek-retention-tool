@@ -476,61 +476,70 @@ def _selected_rows(df: pd.DataFrame, account_ids: set):
     return merged[merged["account_id"].isin(account_ids)]
 
 
-def _render_bulk_actions(df: pd.DataFrame) -> None:
+def _render_bulk_actions(df: pd.DataFrame, placeholder) -> None:
     """Toolbar for the accounts currently selected via card checkboxes:
     an instant bulk mark-as-actioned, and a preview-then-mark flow that
-    shows each selected account's own drafted message first."""
+    shows each selected account's own drafted message first.
+
+    Drawn into a caller-provided `st.empty()` placeholder rather than
+    just `return`-ing when there's nothing selected. Relying on a bare
+    `return` to make Streamlit drop a previously-drawn block depends on
+    it correctly pruning trailing deltas for a container that isn't
+    recreated on a later run — `placeholder.empty()` clears it directly
+    instead, so the toolbar's disappearance doesn't depend on that."""
     selected_ids = st.session_state.selected_account_ids
     if not selected_ids:
+        placeholder.empty()
         return
 
-    st.divider()
-    count = len(selected_ids)
-    mark_col, preview_col = st.columns(2)
+    with placeholder.container():
+        st.divider()
+        count = len(selected_ids)
+        mark_col, preview_col = st.columns(2)
 
-    if mark_col.button(f"Mark {count} as Actioned", key="bulk_mark_actioned"):
-        for account_id in list(selected_ids):
-            mark_actioned(account_id, db_path=DEFAULT_DB_PATH)
-        st.success(f"{count} accounts marked as actioned")
-        _clear_selection()
-        st.rerun()
-
-    if preview_col.button(f"Generate messages for {count} selected", key="bulk_generate_messages"):
-        st.session_state.show_bulk_preview = True
-
-    if st.session_state.get("show_bulk_preview"):
-        st.subheader("Drafted messages for selected accounts")
-        preview_rows = _selected_rows(df, selected_ids)
-        for _, row in preview_rows.iterrows():
-            with st.container(border=True):
-                st.markdown(f"**{row['account_id']}**")
-                if row["action"] == NO_ACTION:
-                    st.caption("No action needed.")
-                    continue
-                variants_by_tone = {variant["tone"]: variant for variant in row["draft_variants"]}
-                variant = variants_by_tone.get("Direct", row["draft_variants"][0])
-                st.write(f"**Action:** {row['action']}")
-                st.text_input(
-                    "Subject",
-                    value=variant["subject"],
-                    key=f"bulk_subject_{row['account_id']}",
-                    disabled=True,
-                )
-                st.text_area(
-                    "Message",
-                    value=variant["message"],
-                    height=150,
-                    key=f"bulk_message_{row['account_id']}",
-                    disabled=True,
-                )
-
-        if st.button(f"Mark all {count} as actioned", key="bulk_mark_actioned_after_preview"):
+        if mark_col.button(f"Mark {count} as Actioned", key="bulk_mark_actioned"):
             for account_id in list(selected_ids):
                 mark_actioned(account_id, db_path=DEFAULT_DB_PATH)
             st.success(f"{count} accounts marked as actioned")
             _clear_selection()
-            st.session_state.show_bulk_preview = False
             st.rerun()
+
+        if preview_col.button(f"Generate messages for {count} selected", key="bulk_generate_messages"):
+            st.session_state.show_bulk_preview = True
+
+        if st.session_state.get("show_bulk_preview"):
+            st.subheader("Drafted messages for selected accounts")
+            preview_rows = _selected_rows(df, selected_ids)
+            for _, row in preview_rows.iterrows():
+                with st.container(border=True):
+                    st.markdown(f"**{row['account_id']}**")
+                    if row["action"] == NO_ACTION:
+                        st.caption("No action needed.")
+                        continue
+                    variants_by_tone = {variant["tone"]: variant for variant in row["draft_variants"]}
+                    variant = variants_by_tone.get("Direct", row["draft_variants"][0])
+                    st.write(f"**Action:** {row['action']}")
+                    st.text_input(
+                        "Subject",
+                        value=variant["subject"],
+                        key=f"bulk_subject_{row['account_id']}",
+                        disabled=True,
+                    )
+                    st.text_area(
+                        "Message",
+                        value=variant["message"],
+                        height=150,
+                        key=f"bulk_message_{row['account_id']}",
+                        disabled=True,
+                    )
+
+            if st.button(f"Mark all {count} as actioned", key="bulk_mark_actioned_after_preview"):
+                for account_id in list(selected_ids):
+                    mark_actioned(account_id, db_path=DEFAULT_DB_PATH)
+                st.success(f"{count} accounts marked as actioned")
+                _clear_selection()
+                st.session_state.show_bulk_preview = False
+                st.rerun()
 
 
 def _account_with_state(df: pd.DataFrame, account_id: str):
@@ -812,7 +821,8 @@ elif view == "Pipeline":
                 for _, row in stage_df.iterrows():
                     _render_card(row)
 
-        _render_bulk_actions(df)
+        bulk_actions_placeholder = st.empty()
+        _render_bulk_actions(df, bulk_actions_placeholder)
 
 # ---------------------------------------------------------------------
 # VIEW 3 — Batch ingestion
