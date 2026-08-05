@@ -118,14 +118,6 @@ h2, h3 {
     font-weight: 400;
     color: #6A655C;
 }
-.card-meta {
-    margin-top: 2px;
-    font-size: 0.72rem;
-    font-weight: 400;
-    color: #9A948A;
-}
-.card-meta-rust { color: #C1502E; }
-
 /* Health score factor breakdown */
 .badge-inline {
     display: inline-block;
@@ -144,19 +136,36 @@ h2, h3 {
 .stepper-completed { color: #4A4640; }
 .stepper-upcoming  { color: #B9B2A6; }
 
-/* Card / notes containers, matching the Paper card background */
-div[data-testid="stVerticalBlockBorderWrapper"] {
+/* Pipeline card container: matches the Paper card background, plus a
+   fixed min-height so every card in a column is the same height
+   regardless of content. Comfortably fits the max realistic case (2 tags
+   + status + task line + note line + button) -- short cards get
+   whitespace below the button instead of a ragged column, long cards
+   never overflow. Scoped to the card's own key (set via
+   st.container(key=f"card_{account_id}")) so it doesn't affect other
+   bordered containers (Account Overview boxes, notes/tasks lists, etc). */
+div[data-testid="stVerticalBlock"][class*="st-key-card_"] {
     background-color: #F6F1E7;
     border-color: #D9A800 !important;
     border-radius: 10px;
+    min-height: 340px;
 }
 
 /* Spacer above the card's "View details ->" button. Anchored to the
    button itself (not to whatever content happens to precede it) so the
    gap is unconditional -- present whether the card's last line above the
-   button is tags alone, tags + task badge, tags + note badge, or both. */
-div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stButton"] {
+   button is tags alone, tags + task line, tags + note line, or both. */
+div[data-testid="stVerticalBlock"][class*="st-key-card_"] div[data-testid="stButton"] {
     margin-top: 12px;
+}
+
+/* Task/note popover triggers: read as plain quiet lines (matching the
+   card's tertiary text hierarchy) rather than boxed buttons. */
+div[data-testid="stVerticalBlock"][class*="st-key-card_"] div[data-testid="stPopover"] button {
+    justify-content: flex-start;
+    padding-left: 0;
+    font-size: 0.72rem;
+    color: #9A948A;
 }
 
 /* Sidebar nav: plain-text items, no radio dot, active item gets a
@@ -442,18 +451,26 @@ def _note_count_text(count: int) -> str:
     return f"{count} note{'s' if count != 1 else ''}"
 
 
-def _task_status_text(summary: dict) -> str:
-    """Plain-text status for the single most urgent incomplete task, or ""
-    if the account has no open tasks. Overdue reads in rust (text color
-    only, no pill); anything upcoming (including due today) reads neutral."""
+def _note_line_label(count: int) -> str:
+    """Popover-trigger label for a card's note line: the note count, or
+    "Add note" if there are none."""
+    return _note_count_text(count) if count > 0 else "Add note"
+
+
+def _task_line_label(summary: dict) -> str:
+    """Popover-trigger label for a card's task line: plain-text status for
+    the single most urgent incomplete task, or "Add task" if the account
+    has no open tasks. Overdue reads in red via Markdown's colored-text
+    directive -- popover labels support (a subset of) Markdown, not
+    arbitrary HTML -- anything upcoming (including due today) reads
+    neutral."""
     if summary["next_due_date"] is None:
-        return ""
+        return "Add task"
     due = date.fromisoformat(summary["next_due_date"])
     delta_days = (due - date.today()).days
     if delta_days < 0:
         days = abs(delta_days)
-        label = f"Overdue by {days} day{'s' if days != 1 else ''}"
-        return f'<span class="card-meta-rust">{label}</span>'
+        return f":red[Overdue by {days} day{'s' if days != 1 else ''}]"
     if delta_days == 0:
         return "Due today"
     return f"Due in {delta_days} day{'s' if delta_days != 1 else ''}"
@@ -510,9 +527,8 @@ def _render_card(row) -> None:
 
     note_count = len(get_notes(account_id, db_path=DEFAULT_DB_PATH))
     task_summary = get_task_summary(account_id, db_path=DEFAULT_DB_PATH)
-    meta_parts = [_note_count_text(note_count) if note_count > 0 else "Add note"]
-    task_text = _task_status_text(task_summary)
-    meta_parts.append(task_text if task_text else "Add task")
+    task_label = _task_line_label(task_summary)
+    note_label = _note_line_label(note_count)
 
     # Line 1 (loudest): account_id + health score badge only.
     label = f'<div class="card-line1">{html.escape(account_id)}  ·  {_score_badge_html(score, arrow)}</div>'
@@ -522,13 +538,10 @@ def _render_card(row) -> None:
     # Line 3 (tertiary): plain status text, always labeled — no bare dates.
     if status_line:
         label += f'<div class="card-status">{html.escape(status_line)}</div>'
-    # Line 4 (quietest): note count / task due, plain text, no pills.
-    if meta_parts:
-        label += f'<div class="card-meta">{" · ".join(meta_parts)}</div>'
 
     selected_ids = st.session_state.selected_account_ids
 
-    with st.container(border=True):
+    with st.container(border=True, key=f"card_{account_id}"):
         checkbox_col, label_col = st.columns([1, 9])
         with checkbox_col:
             checked = st.checkbox(
@@ -544,6 +557,46 @@ def _render_card(row) -> None:
             selected_ids.add(account_id)
         else:
             selected_ids.discard(account_id)
+
+        # Line 4 (quietest): task due (above note), each an inline popover
+        # so a task/note can be added right from the card instead of
+        # navigating to Account Overview. Lazy (on_change="rerun") so a
+        # closed popover's form isn't built on every run -- with 300+
+        # cards on the New column, building all of them unconditionally
+        # would be wasted work.
+        task_popover = st.popover(
+            task_label,
+            width="stretch",
+            type="tertiary",
+            key=f"task_pop_{account_id}",
+            on_change="rerun",
+        )
+        if task_popover.open:
+            with task_popover:
+                with st.form(key=f"card_task_form_{account_id}", clear_on_submit=True):
+                    text_col, due_col = st.columns([3, 2])
+                    new_task_text = text_col.text_input("Task", key=f"card_new_task_{account_id}")
+                    new_task_due = due_col.date_input(
+                        "Due date", value=date.today(), key=f"card_new_task_due_{account_id}"
+                    )
+                    if st.form_submit_button("Save") and new_task_text.strip():
+                        add_task(account_id, new_task_text, new_task_due, db_path=DEFAULT_DB_PATH)
+                        st.rerun()
+
+        note_popover = st.popover(
+            note_label,
+            width="stretch",
+            type="tertiary",
+            key=f"note_pop_{account_id}",
+            on_change="rerun",
+        )
+        if note_popover.open:
+            with note_popover:
+                with st.form(key=f"card_note_form_{account_id}", clear_on_submit=True):
+                    new_note_text = st.text_area("Note", key=f"card_new_note_{account_id}")
+                    if st.form_submit_button("Save") and new_note_text.strip():
+                        add_note(account_id, new_note_text, db_path=DEFAULT_DB_PATH)
+                        st.rerun()
 
         if st.button("View details →", key=f"view_{account_id}", use_container_width=True):
             st.session_state.selected_account = account_id
