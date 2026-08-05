@@ -151,6 +151,14 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
     border-radius: 10px;
 }
 
+/* Spacer above the card's "View details ->" button. Anchored to the
+   button itself (not to whatever content happens to precede it) so the
+   gap is unconditional -- present whether the card's last line above the
+   button is tags alone, tags + task badge, tags + note badge, or both. */
+div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stButton"] {
+    margin-top: 12px;
+}
+
 /* Sidebar nav: plain-text items, no radio dot, active item gets a
    rounded mustard pill behind just its own label (Zoho-style). */
 section[data-testid="stSidebar"] div[data-testid="stRadioGroup"] label[data-testid="stRadioOption"] > div > div > *:not([data-testid="stMarkdownContainer"]) {
