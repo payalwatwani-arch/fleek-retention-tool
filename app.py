@@ -157,6 +157,111 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
     border-radius: 10px;
 }
 
+/* Overview: section headers above the custom-HTML widgets below */
+.ov-section-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #1C1A17;
+    margin-bottom: 2px;
+}
+.ov-section-sub {
+    font-size: 0.82rem;
+    color: #6A655C;
+    margin-bottom: 14px;
+}
+
+/* Overview: Portfolio at a glance -- horizontal stacked bar */
+.ov-stackbar {
+    display: flex;
+    width: 100%;
+    height: 30px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #EFEAE0;
+}
+.ov-stackbar-seg {
+    height: 100%;
+    box-sizing: border-box;
+    border-right: 2px solid #F6F1E7;
+}
+.ov-stackbar-seg:last-child {
+    border-right: none;
+}
+.ov-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    margin-top: 12px;
+}
+.ov-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.83rem;
+    color: #4A4640;
+}
+.ov-legend-swatch {
+    width: 11px;
+    height: 11px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+.ov-legend-count {
+    color: #9A948A;
+}
+
+/* Overview: GMV by region -- horizontal bar list */
+.ov-region-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 9px;
+}
+.ov-region-label {
+    width: 60px;
+    flex-shrink: 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #1C1A17;
+}
+.ov-region-track {
+    flex: 1;
+    background: #EFEAE0;
+    border-radius: 6px;
+    height: 20px;
+    overflow: hidden;
+}
+.ov-region-fill {
+    height: 100%;
+    border-radius: 6px;
+}
+.ov-region-value {
+    width: 100px;
+    flex-shrink: 0;
+    text-align: right;
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: #4A4640;
+}
+
+/* Overview: Needs attention first -- ranked list rows */
+.ov-attn-rank {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #B9B2A6;
+    width: 22px;
+    flex-shrink: 0;
+}
+.ov-attn-account {
+    font-weight: 700;
+    color: #1C1A17;
+}
+.ov-attn-action {
+    font-size: 0.8rem;
+    color: #6A655C;
+    margin-top: 1px;
+}
+
 /* Pipeline cards only (identified by their st.container(key=f"card_...")):
    a fixed min-height so every card in a column lines up regardless of
    content. Sized to comfortably fit the max realistic case -- 2 tags +
@@ -438,6 +543,26 @@ def _tag_category(tag: str) -> str:
 SEGMENT_DISPLAY_NAMES = {
     "Declining": "At Risk",
     "Already Gone": "Gone Cold",
+}
+
+# Overview "Portfolio at a glance" buckets: the 6 raw `segment` values
+# collapsed into the 5 buyer-facing groups shown in the distribution bar.
+# Ordered so no two adjacent buckets land on the same _tag_category color
+# (sage / mustard / rust) below.
+OVERVIEW_SEGMENT_BUCKETS = [
+    ("Steady", ["Healthy AM", "Self-Serve, No Headroom"], "Healthy AM"),
+    ("Opportunity", ["Growth Headroom"], "Growth Headroom"),
+    ("Gone Cold", ["Already Gone"], "Already Gone"),
+    ("At Risk", ["Declining"], "Declining"),
+    ("Self-Serve Nudge", ["Broker-Reliant"], "Broker-Reliant"),
+]
+
+# Solid brand fills for the stacked bar / legend swatches, keyed by the same
+# tier _tag_category already uses for tags and badges elsewhere.
+_TAG_CATEGORY_FILL = {
+    "sage": "#6B8F71",
+    "mustard": "#D9A800",
+    "rust": "#C1502E",
 }
 
 
@@ -964,6 +1089,158 @@ def _render_account_overview(row) -> None:
 
 
 # ---------------------------------------------------------------------
+# Overview page widgets: a stacked-bar segment distribution, a GMV-by-region
+# bar list, and a "needs attention first" ranked list -- all custom
+# HTML/CSS using the brand palette above, not a chart library.
+# ---------------------------------------------------------------------
+
+# GMV-by-region bar fill: a mustard-family gradient, darkest for the
+# top region down to a pale mustard for the smallest, so rank reads at a
+# glance without needing the value label.
+_REGION_FILL_DARK = (0xD9, 0xA8, 0x00)
+_REGION_FILL_LIGHT = (0xFB, 0xEF, 0xC2)
+
+
+def _lerp_hex(dark: tuple, light: tuple, t: float) -> str:
+    r = round(dark[0] + (light[0] - dark[0]) * t)
+    g = round(dark[1] + (light[1] - dark[1]) * t)
+    b = round(dark[2] + (light[2] - dark[2]) * t)
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def _render_segment_distribution(df: pd.DataFrame) -> None:
+    """Horizontal stacked bar + legend showing the real proportion of
+    accounts across the 5 buyer-facing segment buckets, color-coded with
+    the same sage/mustard/rust tiers _tag_category uses for tags/badges."""
+    total = len(df)
+    st.markdown('<div class="ov-section-title">Portfolio at a glance</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="ov-section-sub">Accounts by segment, across the whole portfolio</div>',
+        unsafe_allow_html=True,
+    )
+
+    if total == 0:
+        st.caption("No accounts loaded.")
+        return
+
+    buckets = []
+    for label, segment_values, color_tag in OVERVIEW_SEGMENT_BUCKETS:
+        count = int(df["segment"].isin(segment_values).sum())
+        buckets.append((label, count, _TAG_CATEGORY_FILL[_tag_category(color_tag)]))
+
+    segments_html = "".join(
+        f'<div class="ov-stackbar-seg" style="width:{count / total * 100:.3f}%; '
+        f'background:{color};" title="{html.escape(label)}: {count}"></div>'
+        for label, count, color in buckets
+        if count > 0
+    )
+    st.markdown(f'<div class="ov-stackbar">{segments_html}</div>', unsafe_allow_html=True)
+
+    legend_html = "".join(
+        f'<div class="ov-legend-item"><span class="ov-legend-swatch" style="background:{color};">'
+        f'</span>{html.escape(label)} <span class="ov-legend-count">({count})</span></div>'
+        for label, count, color in buckets
+    )
+    st.markdown(f'<div class="ov-legend">{legend_html}</div>', unsafe_allow_html=True)
+
+
+def _render_gmv_by_region(df: pd.DataFrame) -> None:
+    """Horizontal bar list of total gmv_total_6m per region, highest first,
+    filled with a mustard-family gradient (rank, not a chart library)."""
+    st.markdown('<div class="ov-section-title">GMV by region</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="ov-section-sub">Total 6-month GMV, summed per region</div>',
+        unsafe_allow_html=True,
+    )
+
+    region_gmv = (
+        df.groupby("region")["gmv_total_6m"].sum().sort_values(ascending=False)
+    )
+    if region_gmv.empty:
+        st.caption("No accounts loaded.")
+        return
+
+    max_gmv = region_gmv.iloc[0]
+    n_regions = len(region_gmv)
+    rows_html = []
+    for i, (region, gmv) in enumerate(region_gmv.items()):
+        width_pct = (gmv / max_gmv * 100) if max_gmv else 0
+        t = i / (n_regions - 1) if n_regions > 1 else 0
+        fill = _lerp_hex(_REGION_FILL_DARK, _REGION_FILL_LIGHT, t)
+        rows_html.append(
+            '<div class="ov-region-row">'
+            f'<div class="ov-region-label">{html.escape(str(region))}</div>'
+            f'<div class="ov-region-track"><div class="ov-region-fill" '
+            f'style="width:{width_pct:.2f}%; background:{fill};"></div></div>'
+            f'<div class="ov-region-value">${gmv:,.0f}</div>'
+            "</div>"
+        )
+    st.markdown("".join(rows_html), unsafe_allow_html=True)
+
+
+def _account_urgency(row) -> float:
+    """Urgency ranking for a "New" (not-yet-actioned) account: a lower
+    health score is more urgent, and a higher touch_count (repeated
+    unresolved contact attempts already logged) makes it more urgent too.
+    Formula: health_score - touch_count * 10 -- the lowest resulting value
+    is the most urgent account, so callers sort this ascending."""
+    score, _ = compute_health_score(row)
+    touch_count = row.get("touch_count") or 0
+    return score - touch_count * 10
+
+
+def _render_needs_attention(df: pd.DataFrame) -> None:
+    """Top 5 "New" (not-yet-actioned) accounts ranked by _account_urgency,
+    each clickable straight to that account's Account Overview page."""
+    st.markdown('<div class="ov-section-title">Needs attention first</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="ov-section-sub">Top 5 not-yet-actioned accounts, ranked by urgency</div>',
+        unsafe_allow_html=True,
+    )
+
+    new_df = _stage_accounts(df, STAGE_NEW)
+    if new_df.empty:
+        st.caption("No accounts awaiting first contact.")
+        return
+
+    ranked = sorted(
+        (row for _, row in new_df.iterrows()),
+        key=_account_urgency,
+    )[:5]
+
+    with st.container(border=True):
+        for i, row in enumerate(ranked):
+            score, factors = compute_health_score(row)
+            arrow = "↑" if (factors[0]["direction"] == "up" if factors else True) else "↓"
+            account_id = row["account_id"]
+            rank_col, info_col, button_col = st.columns([0.5, 6, 2])
+            with rank_col:
+                st.markdown(f'<div class="ov-attn-rank">{i + 1}</div>', unsafe_allow_html=True)
+            with info_col:
+                st.markdown(
+                    f'<div class="ov-attn-account">{html.escape(account_id)}  '
+                    f'{_score_badge_html(score, arrow)}</div>'
+                    f'<div class="ov-attn-action">{html.escape(row["action"])}</div>',
+                    unsafe_allow_html=True,
+                )
+            with button_col:
+                if st.button("View →", key=f"attn_{account_id}", use_container_width=True):
+                    st.session_state.selected_account = account_id
+                    # Can't set st.session_state.nav_view directly here: the
+                    # sidebar radio (key="nav_view") has already been
+                    # instantiated earlier in this same run, and Streamlit
+                    # forbids writing a widget's key after that. Queue it
+                    # instead -- _apply_pending_nav_view applies it on the
+                    # next run, before the radio is (re)created.
+                    st.session_state.pending_nav_view = "Pipeline"
+                    _clear_selection()
+                    st.session_state.show_bulk_preview = False
+                    st.rerun()
+            if i < len(ranked) - 1:
+                st.divider()
+
+
+# ---------------------------------------------------------------------
 # SETUP: load the portfolio workbook once, keep the result in session
 # state so we don't re-run the pipeline on every click.
 # ---------------------------------------------------------------------
@@ -994,8 +1271,16 @@ if "pending_checkbox_clear" not in st.session_state:
 
 st.title("Fleek Retention Engine")
 st.sidebar.image(str(LOGO_PATH), width=140)
+
+# Apply any view switch queued by a Needs-attention-first "View ->" click
+# before the radio below is (re)created -- see the comment at
+# `pending_nav_view`'s write site for why this can't be set directly there.
+pending_nav_view = st.session_state.pop("pending_nav_view", None)
+if pending_nav_view is not None:
+    st.session_state.nav_view = pending_nav_view
+
 view = st.sidebar.radio(
-    "View", ["Overview", "Pipeline", "Import"]
+    "View", ["Overview", "Pipeline", "Import"], key="nav_view"
 )
 
 # ---------------------------------------------------------------------
@@ -1004,15 +1289,10 @@ view = st.sidebar.radio(
 if view == "Overview":
     st.header("Overview")
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3 = st.columns(3)
     col1.metric("Total accounts", f"{len(df):,}")
     col2.metric("Total GMV (6m)", f"${df['gmv_total_6m'].sum():,.0f}")
-
-    ownership_pct = df["ownership"].value_counts(normalize=True) * 100
-    col3.metric("Account Managed", f"{ownership_pct.get('Account Managed', 0.0):.0f}%")
-    col4.metric("Self Serve", f"{ownership_pct.get('Self Serve', 0.0):.0f}%")
-
-    col5.metric("At-risk accounts", f"{int(df['is_at_risk'].sum()):,}")
+    col3.metric("At-risk accounts", f"{int(df['is_at_risk'].sum()):,}")
 
     briefing_path = BRIEFINGS_DIR / f"briefing_{date.today().isoformat()}.md"
     if briefing_path.exists():
@@ -1022,6 +1302,19 @@ if view == "Overview":
 
     with st.container(border=True):
         st.markdown(briefing_text)
+
+    st.write("")
+    with st.container(border=True):
+        _render_segment_distribution(df)
+
+    st.write("")
+    region_col, attention_col = st.columns(2)
+    with region_col:
+        with st.container(border=True):
+            _render_gmv_by_region(df)
+    with attention_col:
+        with st.container(border=True):
+            _render_needs_attention(df)
 
 # ---------------------------------------------------------------------
 # VIEW 2 — Pipeline (Kanban board, by contact stage)
