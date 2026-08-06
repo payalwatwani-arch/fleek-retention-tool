@@ -1390,7 +1390,7 @@ elif view == "Pipeline":
         with status_col:
             status = st.selectbox("Status", ["All"] + list(STATUS_FILTER_SEGMENTS.keys()))
         with search_col:
-            account_id_search = st.text_input("Search account ID")
+            account_id_search = st.text_input("Search")
 
         filtered_df = _apply_filters(df, region, persona, ownership, status, account_id_search)
 
