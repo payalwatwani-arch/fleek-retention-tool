@@ -821,36 +821,38 @@ def test_undo_reverts_actioned_card_back_to_new(app):
 # ---------------------------------------------------------------------
 # Filters
 # ---------------------------------------------------------------------
-def test_filter_bar_has_region_persona_ownership_and_status_controls(app):
+def test_filter_bar_has_region_persona_ownership_and_segment_controls(app):
     at = _open_pipeline(app)
     labels = {sb.label for sb in at.selectbox}
-    assert {"Region", "Buyer persona", "Ownership", "Status"} <= labels
-    status_select = [s for s in at.selectbox if s.label == "Status"][0]
-    assert status_select.options == ["All", "At Risk", "Gone Cold", "Healthy"]
-    assert status_select.value == "All"
+    assert {"Region", "Buyer persona", "Ownership", "Segment"} <= labels
+    segment_select = [s for s in at.selectbox if s.label == "Segment"][0]
+    assert segment_select.options == [
+        "All",
+        "Steady",
+        "Opportunity",
+        "Gone Cold",
+        "At Risk",
+        "Self-Serve Nudge",
+    ]
+    assert segment_select.value == "All"
 
 
-def test_status_filter_at_risk_narrows_board_and_updates_counts(app):
+def test_segment_filter_at_risk_narrows_board_and_updates_counts(app):
     at = _open_pipeline(app)
     df = at.session_state.df
-    expected = int(
-        (
-            (df["segment"] == "Declining")
-            | (df["is_at_risk"] & (df["at_risk_detail"] == "Declining"))
-        ).sum()
-    )
+    expected = int((df.apply(_overview_bucket, axis=1) == "At Risk").sum())
     if expected == 0 or expected == len(df):
         pytest.skip("demo workbook doesn't give a meaningful at-risk split to test")
 
-    status_select = [s for s in at.selectbox if s.label == "Status"][0]
-    at = status_select.set_value("At Risk").run()
+    segment_select = [s for s in at.selectbox if s.label == "Segment"][0]
+    at = segment_select.set_value("At Risk").run()
     assert not at.exception
 
     headers = _column_headers(at)
     assert f"**New ({expected})**" in headers
 
 
-def test_status_filter_at_risk_includes_secondary_at_risk_flag(app):
+def test_segment_filter_at_risk_includes_secondary_at_risk_flag(app):
     """An account whose PRIMARY segment isn't "Declining" (e.g.
     Broker-Reliant) but that also carries the at-risk signal as a
     secondary flag must still show up under "At Risk" - the filter
@@ -864,42 +866,67 @@ def test_status_filter_at_risk_includes_secondary_at_risk_flag(app):
         & (d["at_risk_detail"] == "Declining"),
     )
 
-    status_select = [s for s in at.selectbox if s.label == "Status"][0]
-    at = status_select.set_value("At Risk").run()
+    segment_select = [s for s in at.selectbox if s.label == "Segment"][0]
+    at = segment_select.set_value("At Risk").run()
     assert not at.exception
 
     assert _card_markdown(at, row["account_id"])
 
 
-def test_status_filter_gone_cold_narrows_board_and_updates_counts(app):
+def test_segment_filter_gone_cold_narrows_board_and_updates_counts(app):
     at = _open_pipeline(app)
     df = at.session_state.df
-    expected = int(
-        (
-            (df["segment"] == "Already Gone")
-            | (df["is_at_risk"] & (df["at_risk_detail"] == "Already Gone"))
-        ).sum()
-    )
+    expected = int((df.apply(_overview_bucket, axis=1) == "Gone Cold").sum())
     if expected == 0 or expected == len(df):
         pytest.skip("demo workbook doesn't give a meaningful gone-cold split to test")
 
-    status_select = [s for s in at.selectbox if s.label == "Status"][0]
-    at = status_select.set_value("Gone Cold").run()
+    segment_select = [s for s in at.selectbox if s.label == "Segment"][0]
+    at = segment_select.set_value("Gone Cold").run()
     assert not at.exception
 
     headers = _column_headers(at)
     assert f"**New ({expected})**" in headers
 
 
-def test_status_filter_healthy_shows_only_no_action_accounts(app):
+def test_segment_filter_steady_shows_only_steady_bucket_accounts(app):
     at = _open_pipeline(app)
     df = at.session_state.df
-    expected = int(df["segment"].isin(["Healthy AM", "Self-Serve, No Headroom"]).sum())
+    expected = int((df.apply(_overview_bucket, axis=1) == "Steady").sum())
     if expected == 0 or expected == len(df):
-        pytest.skip("demo workbook doesn't give a meaningful healthy split to test")
+        pytest.skip("demo workbook doesn't give a meaningful steady split to test")
 
-    status_select = [s for s in at.selectbox if s.label == "Status"][0]
-    at = status_select.set_value("Healthy").run()
+    segment_select = [s for s in at.selectbox if s.label == "Segment"][0]
+    at = segment_select.set_value("Steady").run()
+    assert not at.exception
+
+    headers = _column_headers(at)
+    assert f"**New ({expected})**" in headers
+
+
+def test_segment_filter_opportunity_shows_only_opportunity_bucket_accounts(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    expected = int((df.apply(_overview_bucket, axis=1) == "Opportunity").sum())
+    if expected == 0 or expected == len(df):
+        pytest.skip("demo workbook doesn't give a meaningful opportunity split to test")
+
+    segment_select = [s for s in at.selectbox if s.label == "Segment"][0]
+    at = segment_select.set_value("Opportunity").run()
+    assert not at.exception
+
+    headers = _column_headers(at)
+    assert f"**New ({expected})**" in headers
+
+
+def test_segment_filter_self_serve_nudge_shows_only_that_bucket_accounts(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    expected = int((df.apply(_overview_bucket, axis=1) == "Self-Serve Nudge").sum())
+    if expected == 0 or expected == len(df):
+        pytest.skip("demo workbook doesn't give a meaningful self-serve-nudge split to test")
+
+    segment_select = [s for s in at.selectbox if s.label == "Segment"][0]
+    at = segment_select.set_value("Self-Serve Nudge").run()
     assert not at.exception
 
     headers = _column_headers(at)
@@ -967,7 +994,7 @@ def test_default_filters_show_everything(app):
     assert f"**New ({len(df)})**" in headers
 
 
-def test_account_id_search_narrows_board_and_combines_with_status_filter(app):
+def test_account_id_search_narrows_board_and_combines_with_segment_filter(app):
     at = _open_pipeline(app)
     df = at.session_state.df
 
@@ -976,22 +1003,22 @@ def test_account_id_search_narrows_board_and_combines_with_status_filter(app):
     substring = account_id[-4:]
     assert int(df["account_id"].str.contains(substring, case=False).sum()) == 1
 
-    search_input = [t for t in at.text_input if t.label == "Search account ID"][0]
+    search_input = [t for t in at.text_input if t.label == "Search"][0]
     at = search_input.set_value(substring).run()
     assert not at.exception
     assert _card_markdown(at, account_id)
     headers = _column_headers(at)
     assert f"**New (1)**" in headers
 
-    # Combined AND'd with the Status filter: matching status keeps the
-    # single search result; a non-matching status filters it out to zero.
-    status_select = [s for s in at.selectbox if s.label == "Status"][0]
-    at = status_select.set_value("At Risk").run()
+    # Combined AND'd with the Segment filter: matching segment keeps the
+    # single search result; a non-matching segment filters it out to zero.
+    segment_select = [s for s in at.selectbox if s.label == "Segment"][0]
+    at = segment_select.set_value("At Risk").run()
     assert not at.exception
     headers = _column_headers(at)
     assert f"**New (1)**" in headers
 
-    at = status_select.set_value("Healthy").run()
+    at = segment_select.set_value("Steady").run()
     assert not at.exception
     headers = _column_headers(at)
     assert "**New (0)**" in headers
