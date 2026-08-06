@@ -543,6 +543,8 @@ def _tag_category(tag: str) -> str:
 SEGMENT_DISPLAY_NAMES = {
     "Declining": "At Risk",
     "Already Gone": "Gone Cold",
+    "Growth Headroom": "Opportunity",
+    "Self-Serve, No Headroom": "Steady",
 }
 
 # Solid brand fills for tags and badges elsewhere (Pipeline board cards),
