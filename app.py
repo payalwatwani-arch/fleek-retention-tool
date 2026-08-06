@@ -25,7 +25,7 @@ from src.nba import (
     draft_self_serve_nudge_stage,
     explain_growth_lever_default,
 )
-from src.pipeline import run_pipeline
+from src.pipeline import run_batch_pipeline, run_pipeline
 from src.scoring import compute_health_score
 from src.segmentation import ACCOUNT_MANAGED, SELF_SERVE
 from src.state import (
@@ -499,6 +499,17 @@ def _render_call_script(row, action: str) -> None:
 
 def _run_and_store(filepath) -> None:
     drafted_df, summary = run_pipeline(filepath, db_path=DEFAULT_DB_PATH)
+    st.session_state.df = drafted_df
+    st.session_state.sync_summary = summary
+
+
+def _run_batch_and_store(filepath) -> None:
+    """Batch-uploader counterpart to `_run_and_store`: merges a new-accounts
+    batch into the already-loaded portfolio (`st.session_state.df`) instead
+    of requiring the uploaded file to be a full two-sheet workbook."""
+    drafted_df, summary = run_batch_pipeline(
+        st.session_state.df, filepath, db_path=DEFAULT_DB_PATH
+    )
     st.session_state.df = drafted_df
     st.session_state.sync_summary = summary
 
@@ -1432,7 +1443,7 @@ elif view == "Import":
 
         BATCH_UPLOAD_PATH.parent.mkdir(parents=True, exist_ok=True)
         BATCH_UPLOAD_PATH.write_bytes(batch_file.getvalue())
-        _run_and_store(BATCH_UPLOAD_PATH)
+        _run_batch_and_store(BATCH_UPLOAD_PATH)
 
         new_summary = st.session_state.sync_summary
 

@@ -121,6 +121,44 @@ def load_and_clean(filepath) -> tuple[pd.DataFrame, dict]:
     return merged, report
 
 
+def load_new_accounts_batch(filepath) -> pd.DataFrame:
+    """Read a batch of new-account rows for the Import view's batch
+    uploader, tolerant of sheet layout in a way `load_and_clean()` isn't --
+    the batch uploader shouldn't require a full two-sheet workbook.
+
+    Picks a sheet in this order:
+      1. A sheet literally named `new_accounts` (NEW_ACCOUNTS_SHEET).
+      2. Else a sheet literally named `Accounts` (ACCOUNTS_SHEET) -- lets a
+         full combined workbook be uploaded as a "batch" too, treating its
+         Accounts data as this batch.
+      3. Else, if the workbook has exactly one sheet total, that one --
+         supports a standalone file with just new-account rows on a single,
+         arbitrarily-named sheet.
+
+    Raises ValueError listing the sheet names found if none of the above
+    apply, rather than letting a malformed file fail with a cryptic error
+    from deep inside pandas/openpyxl.
+    """
+    workbook = pd.ExcelFile(filepath)
+    sheet_names = workbook.sheet_names
+
+    if NEW_ACCOUNTS_SHEET in sheet_names:
+        sheet_name = NEW_ACCOUNTS_SHEET
+    elif ACCOUNTS_SHEET in sheet_names:
+        sheet_name = ACCOUNTS_SHEET
+    elif len(sheet_names) == 1:
+        sheet_name = sheet_names[0]
+    else:
+        raise ValueError(
+            "Could not determine which sheet holds the new-accounts batch: "
+            f"found {len(sheet_names)} sheets {sheet_names!r}. Expected a "
+            f"sheet named '{NEW_ACCOUNTS_SHEET}' or '{ACCOUNTS_SHEET}', or a "
+            "workbook with exactly one sheet."
+        )
+
+    return pd.read_excel(workbook, sheet_name=sheet_name)
+
+
 def _print_report(report: dict) -> None:
     print("=" * 60)
     print("DATA LOAD REPORT")
