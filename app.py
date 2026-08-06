@@ -1190,8 +1190,9 @@ def _account_urgency(row) -> float:
 
 
 def _render_needs_attention(df: pd.DataFrame) -> None:
-    """Top 5 "New" (not-yet-actioned) accounts ranked by _account_urgency,
-    each clickable straight to that account's Account Overview page."""
+    """Top 5 "New" (not-yet-actioned) accounts that have a real action
+    attached (action != NO_ACTION), ranked by _account_urgency, each
+    clickable straight to that account's Account Overview page."""
     st.markdown('<div class="ov-section-title">Needs attention first</div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="ov-section-sub">Top 5 not-yet-actioned accounts, ranked by urgency</div>',
@@ -1199,6 +1200,7 @@ def _render_needs_attention(df: pd.DataFrame) -> None:
     )
 
     new_df = _stage_accounts(df, STAGE_NEW)
+    new_df = new_df[new_df["action"] != NO_ACTION]
     if new_df.empty:
         st.caption("No accounts awaiting first contact.")
         return

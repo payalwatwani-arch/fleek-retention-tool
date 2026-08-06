@@ -16,6 +16,7 @@ Pipeline" returns to the board.
 
 from __future__ import annotations
 
+import html
 import shutil
 import sqlite3
 from datetime import date, timedelta
@@ -24,11 +25,11 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from app import SEGMENT_DISPLAY_NAMES
+from app import NO_ACTION, SEGMENT_DISPLAY_NAMES
 from src.briefing import generate_briefing_text
 from src.nba import GROWTH_LEVER_ACTIONS, TONES
 from src.scoring import compute_health_score
-from src.state import STAGE_ACTIONED, STAGE_FOLLOW_UP, STAGE_NEW, add_note, add_task, DEFAULT_DB_PATH
+from src.state import STAGE_ACTIONED, STAGE_FOLLOW_UP, STAGE_NEW, add_note, add_task, get_by_stage, DEFAULT_DB_PATH
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 APP_PATH = PROJECT_ROOT / "app.py"
@@ -1145,3 +1146,70 @@ def test_overview_reads_todays_briefing_file_when_present(tmp_path, monkeypatch)
 
     rendered = "\n".join(m.value for m in at.markdown)
     assert "A canned briefing from a scheduled run." in rendered
+
+
+# ---------------------------------------------------------------------
+# Overview: Needs attention first -- only "New" accounts with a real
+# action attached, ranked by urgency (health_score - touch_count*10).
+# ---------------------------------------------------------------------
+def _needs_attention_rows(at: AppTest) -> list[str]:
+    """The raw markdown value for each row currently shown in the
+    Needs-attention-first list (account + action combined in one
+    st.markdown call)."""
+    return [
+        m.value for m in at.markdown
+        if '<div class="ov-attn-account">' in m.value
+    ]
+
+
+def _needs_attention_actions(at: AppTest) -> list[str]:
+    """The rendered action text (unescaped) for each row currently shown
+    in the Needs-attention-first list."""
+    prefix = '<div class="ov-attn-action">'
+    actions = []
+    for value in _needs_attention_rows(at):
+        start = value.index(prefix) + len(prefix)
+        end = value.index("</div>", start)
+        actions.append(html.unescape(value[start:end]))
+    return actions
+
+
+def test_needs_attention_first_only_shows_accounts_with_a_real_action(app):
+    at = app  # default view on load is Overview
+
+    actions = _needs_attention_actions(at)
+    assert len(actions) == 5
+    assert all(action != NO_ACTION for action in actions)
+
+
+def test_needs_attention_first_excludes_low_score_none_action_account(app):
+    at = app  # default view on load is Overview
+
+    new_ids = get_by_stage(STAGE_NEW, db_path=DEFAULT_DB_PATH)["account_id"].tolist()
+    assert new_ids, "demo workbook has no New-stage accounts to exercise this case"
+    target_id = new_ids[0]
+
+    df = at.session_state.df.copy()
+    mask = df["account_id"] == target_id
+    df.loc[mask, "action"] = NO_ACTION
+    df.loc[mask, "broker_reliance_pct"] = 100
+    df.loc[mask, "pdp_views_6m"] = 0
+    df.loc[mask, "make_an_offer_6m"] = 0
+    df.loc[mask, "app_active_days_6m"] = 0
+    df.loc[mask, "gmv_trend_pct"] = -100
+    df.loc[mask, "has_trend_baseline"] = True
+
+    at.session_state["df"] = df
+    at = at.run()
+    assert not at.exception
+
+    account_prefix = '<div class="ov-attn-account">'
+    rank_ids = [
+        value[value.index(account_prefix) + len(account_prefix):].split()[0]
+        for value in _needs_attention_rows(at)
+    ]
+    assert target_id not in rank_ids
+
+    actions = _needs_attention_actions(at)
+    assert len(actions) == 5
+    assert all(action != NO_ACTION for action in actions)
