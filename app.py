@@ -545,25 +545,53 @@ SEGMENT_DISPLAY_NAMES = {
     "Already Gone": "Gone Cold",
 }
 
-# Overview "Portfolio at a glance" buckets: the 6 raw `segment` values
-# collapsed into the 5 buyer-facing groups shown in the distribution bar.
-# Ordered so no two adjacent buckets land on the same _tag_category color
-# (sage / mustard / rust) below.
-OVERVIEW_SEGMENT_BUCKETS = [
-    ("Steady", ["Healthy AM", "Self-Serve, No Headroom"], "Healthy AM"),
-    ("Opportunity", ["Growth Headroom"], "Growth Headroom"),
-    ("Gone Cold", ["Already Gone"], "Already Gone"),
-    ("At Risk", ["Declining"], "Declining"),
-    ("Self-Serve Nudge", ["Broker-Reliant"], "Broker-Reliant"),
-]
-
-# Solid brand fills for the stacked bar / legend swatches, keyed by the same
-# tier _tag_category already uses for tags and badges elsewhere.
+# Solid brand fills for tags and badges elsewhere (Pipeline board cards),
+# keyed by the tier _tag_category assigns each segment/at-risk-detail tag.
 _TAG_CATEGORY_FILL = {
     "sage": "#6B8F71",
     "mustard": "#D9A800",
     "rust": "#C1502E",
 }
+
+
+def _overview_bucket(row) -> str:
+    """Overview "Portfolio at a glance" bucket for one account: the
+    is_at_risk/at_risk_detail flag takes priority over the primary segment,
+    so an account flagged at-risk is bucketed as such regardless of which
+    primary segment (e.g. Broker-Reliant, Growth Headroom) it's in --
+    matching the Status filter's treatment of the same flag. Each account
+    lands in exactly one of the 5 buyer-facing groups."""
+    if row.get("is_at_risk") and row.get("at_risk_detail") == "Already Gone":
+        return "Gone Cold"
+    if row.get("is_at_risk") and row.get("at_risk_detail") == "Declining":
+        return "At Risk"
+    segment = row["segment"]
+    if segment == "Broker-Reliant":
+        return "Self-Serve Nudge"
+    if segment == "Growth Headroom":
+        return "Opportunity"
+    return "Steady"
+
+
+# Distinct fills for the "Portfolio at a glance" stacked bar / legend,
+# forming a health-to-risk gradient (sage -> mustard -> amber -> rust).
+# Kept separate from _TAG_CATEGORY_FILL's 3-tier scheme, which stays as-is
+# for Pipeline board tags/badges.
+OVERVIEW_BUCKET_COLORS = {
+    "Steady": "#6B8F71",
+    "Opportunity": "#F5C400",
+    "Self-Serve Nudge": "#D9A800",
+    "At Risk": "#E0791E",
+    "Gone Cold": "#C1502E",
+}
+
+OVERVIEW_BUCKET_ORDER = [
+    "Steady",
+    "Opportunity",
+    "Self-Serve Nudge",
+    "At Risk",
+    "Gone Cold",
+]
 
 
 def _tag_html(tag: str) -> str:
@@ -1110,8 +1138,10 @@ def _lerp_hex(dark: tuple, light: tuple, t: float) -> str:
 
 def _render_segment_distribution(df: pd.DataFrame) -> None:
     """Horizontal stacked bar + legend showing the real proportion of
-    accounts across the 5 buyer-facing segment buckets, color-coded with
-    the same sage/mustard/rust tiers _tag_category uses for tags/badges."""
+    accounts across the 5 buyer-facing segment buckets. Each account is
+    bucketed by _overview_bucket (is_at_risk/at_risk_detail takes priority
+    over primary segment), counted exactly once, and colored with a
+    dedicated 5-color health-to-risk gradient (OVERVIEW_BUCKET_COLORS)."""
     total = len(df)
     st.markdown('<div class="ov-section-title">Portfolio at a glance</div>', unsafe_allow_html=True)
     st.markdown(
@@ -1123,10 +1153,11 @@ def _render_segment_distribution(df: pd.DataFrame) -> None:
         st.caption("No accounts loaded.")
         return
 
-    buckets = []
-    for label, segment_values, color_tag in OVERVIEW_SEGMENT_BUCKETS:
-        count = int(df["segment"].isin(segment_values).sum())
-        buckets.append((label, count, _TAG_CATEGORY_FILL[_tag_category(color_tag)]))
+    bucket_counts = df.apply(_overview_bucket, axis=1).value_counts()
+    buckets = [
+        (label, int(bucket_counts.get(label, 0)), OVERVIEW_BUCKET_COLORS[label])
+        for label in OVERVIEW_BUCKET_ORDER
+    ]
 
     segments_html = "".join(
         f'<div class="ov-stackbar-seg" style="width:{count / total * 100:.3f}%; '

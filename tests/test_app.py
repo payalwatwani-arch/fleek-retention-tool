@@ -25,7 +25,9 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from app import NO_ACTION, SEGMENT_DISPLAY_NAMES
+import pandas as pd
+
+from app import NO_ACTION, SEGMENT_DISPLAY_NAMES, OVERVIEW_BUCKET_COLORS, _overview_bucket
 from src.briefing import generate_briefing_text
 from src.nba import GROWTH_LEVER_ACTIONS, TONES
 from src.scoring import compute_health_score
@@ -1213,3 +1215,67 @@ def test_needs_attention_first_excludes_low_score_none_action_account(app):
     actions = _needs_attention_actions(at)
     assert len(actions) == 5
     assert all(action != NO_ACTION for action in actions)
+
+
+# ---------------------------------------------------------------------
+# Overview: Portfolio at a glance -- accounts re-bucketed by
+# is_at_risk/at_risk_detail (priority) over primary segment (fallback),
+# matching the Status filter's treatment of the same flag.
+# ---------------------------------------------------------------------
+def test_at_risk_detail_already_gone_buckets_as_gone_cold_regardless_of_segment():
+    row = pd.Series(
+        {
+            "segment": "Broker-Reliant",
+            "is_at_risk": True,
+            "at_risk_detail": "Already Gone",
+        }
+    )
+    assert _overview_bucket(row) == "Gone Cold"
+
+
+def test_at_risk_detail_declining_buckets_as_at_risk_regardless_of_segment():
+    row = pd.Series(
+        {
+            "segment": "Growth Headroom",
+            "is_at_risk": True,
+            "at_risk_detail": "Declining",
+        }
+    )
+    assert _overview_bucket(row) == "At Risk"
+
+
+def test_not_at_risk_falls_back_to_primary_segment_mapping():
+    cases = [
+        ("Broker-Reliant", "Self-Serve Nudge"),
+        ("Growth Headroom", "Opportunity"),
+        ("Healthy AM", "Steady"),
+        ("Self-Serve, No Headroom", "Steady"),
+    ]
+    for segment, expected in cases:
+        row = pd.Series({"segment": segment, "is_at_risk": False, "at_risk_detail": None})
+        assert _overview_bucket(row) == expected, segment
+
+
+def test_portfolio_at_a_glance_counts_every_account_exactly_once(app):
+    at = app  # default view on load is Overview
+
+    df = at.session_state.df
+    bucket_counts = df.apply(_overview_bucket, axis=1).value_counts()
+    assert int(bucket_counts.sum()) == len(df)
+
+    legend_items = [m.value for m in at.markdown if 'class="ov-legend"' in m.value]
+    assert len(legend_items) == 1
+    for label, count in bucket_counts.items():
+        assert f"{html.escape(label)} <span class=\"ov-legend-count\">({count})</span>" in legend_items[0]
+
+
+def test_portfolio_at_a_glance_uses_five_distinct_gradient_colors():
+    assert len(OVERVIEW_BUCKET_COLORS) == 5
+    assert len(set(OVERVIEW_BUCKET_COLORS.values())) == 5
+    assert OVERVIEW_BUCKET_COLORS == {
+        "Steady": "#6B8F71",
+        "Opportunity": "#F5C400",
+        "Self-Serve Nudge": "#D9A800",
+        "At Risk": "#E0791E",
+        "Gone Cold": "#C1502E",
+    }
