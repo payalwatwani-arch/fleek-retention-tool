@@ -158,3 +158,34 @@ def compute_health_score(row) -> tuple[int, list[dict]]:
         })
 
     return score, factors
+
+
+# Health score at or below this threshold is flagged as a general account
+# health concern in internal_recommendation(), even when is_at_risk is False
+# — e.g. an account with a middling score on each individual component that
+# still adds up to a weak overall picture. Chosen well below the midpoint
+# (50) so this only fires for accounts that are clearly struggling, not
+# merely below average.
+CRITICAL_HEALTH_SCORE_THRESHOLD = 35
+
+
+def internal_recommendation(row, score: int) -> str | None:
+    """Internal-only guidance for an Account Manager, kept separate from the
+    customer-facing draft in src/nba.py so account-health context never
+    leaks into what the customer sees. Returns None when there's nothing to
+    flag (healthy account, not at risk)."""
+    at_risk_detail = row.get("at_risk_detail")
+
+    if bool(row.get("is_at_risk")):
+        if at_risk_detail == "Already Gone":
+            trend = row.get("gmv_trend_pct")
+            drop = f"{abs(float(trend)):.0f}%" if trend is not None and not pd.isna(trend) else "sharply"
+            return f"GMV dropped {drop} — recommend AM review before sending automated outreach."
+        if at_risk_detail == "Declining":
+            return "Declining trend — monitor closely."
+        return "Account flagged at-risk — recommend AM review before sending automated outreach."
+
+    if score <= CRITICAL_HEALTH_SCORE_THRESHOLD:
+        return f"Health score critically low ({score}/100) — recommend AM review of overall account health."
+
+    return None

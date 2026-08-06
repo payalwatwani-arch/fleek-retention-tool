@@ -23,11 +23,6 @@ import pandas as pd
 from .data_loader import DEFAULT_DEMO_PATH, load_and_clean, _build_demo_workbook
 from .segmentation import segment_accounts
 
-# Actions whose template is itself the at-risk message — appending the
-# generic "also showing declining spend" sentence to these would be
-# redundant, since is_at_risk is always True for rows carrying them.
-AT_RISK_APPEND_EXEMPT = {"Win-back play", "Retention check-in", "None", "Re-engage"}
-
 
 def _account_label(row) -> str:
     name = row.get("name")
@@ -191,9 +186,11 @@ def draft_self_serve_nudge_stage(row, touch_count) -> tuple[int, list[dict[str, 
     """Select the Self-Serve Nudge message variants matching an account's
     real `touch_count` from the state database. Returns `(touch_stage,
     variants)` where `touch_stage` is 1/2/3 (for a "Touch N" display label)
-    and `variants` is the usual list of 3 tone dicts, with the at-risk
-    sentence appended when applicable — mirroring `draft_actions()`'s
-    append behavior, since Self-Serve Nudge isn't in AT_RISK_APPEND_EXEMPT.
+    and `variants` is the usual list of 3 tone dicts — pure behavior-focused
+    content regardless of the account's at-risk status. Account health
+    concerns surface separately as an internal-only recommendation (see
+    `src.scoring.internal_recommendation`), never mixed into the
+    customer-facing message.
 
     touch_count is None or NaN before a state row exists yet, which is
     equivalent to touch_count == 0 (first outreach, never actioned)."""
@@ -205,10 +202,6 @@ def draft_self_serve_nudge_stage(row, touch_count) -> tuple[int, list[dict[str, 
         touch_stage, variants = 3, _draft_migration_play_touch3(row)
 
     variants = [dict(variant) for variant in variants]
-    if bool(row.get("is_at_risk")):
-        for variant in variants:
-            variant["message"] = f"{variant['message']}\n\n{AT_RISK_APPEND_SENTENCE}"
-
     return touch_stage, variants
 
 
@@ -931,10 +924,6 @@ def draft_growth_lever_stage(row, action: str, touch_count) -> tuple[int, list[d
         touch_stage, variants = 3, touch3_fn(row)
 
     variants = [dict(variant) for variant in variants]
-    if bool(row.get("is_at_risk")):
-        for variant in variants:
-            variant["message"] = f"{variant['message']}\n\n{AT_RISK_APPEND_SENTENCE}"
-
     return touch_stage, variants
 
 
@@ -979,18 +968,14 @@ ACTION_TEMPLATES = {
     "Re-engage": _draft_reengage,
 }
 
-AT_RISK_APPEND_SENTENCE = (
-    "One more thing worth flagging: this account is also showing declining spend, "
-    "so it may need attention beyond this message alone."
-)
-
-
 def draft_actions(df: pd.DataFrame) -> pd.DataFrame:
     """Add a `draft_variants` column: a list of 3 tone-variant dicts
     (`{"tone", "subject", "message"}`, in Direct/Warm/Formal order), one
-    set per `action` value. "None" actions get `None`. Accounts flagged
-    `is_at_risk` under a non-at-risk primary action get one extra sentence
-    appended to every variant's message, without changing which template ran."""
+    set per `action` value. "None" actions get `None`. Messages are always
+    pure behavior-focused content, regardless of `is_at_risk` — account
+    health concerns are surfaced separately as an internal-only
+    recommendation (see `src.scoring.internal_recommendation`), never
+    mixed into the customer-facing draft."""
     df = df.copy()
     all_variants: list[list[dict[str, str]] | None] = []
 
@@ -1003,11 +988,6 @@ def draft_actions(df: pd.DataFrame) -> pd.DataFrame:
             continue
 
         variants = [dict(variant) for variant in template(row)]
-
-        if bool(row.get("is_at_risk")) and action not in AT_RISK_APPEND_EXEMPT:
-            for variant in variants:
-                variant["message"] = f"{variant['message']}\n\n{AT_RISK_APPEND_SENTENCE}"
-
         all_variants.append(variants)
 
     df["draft_variants"] = all_variants
@@ -1027,14 +1007,8 @@ def _print_summary(df: pd.DataFrame) -> None:
         has_draft = has_variants[df["action"] == action].sum()
         print(f"  {str(action):<28} {count} accounts, {has_draft} drafted")
 
-    with_appended_note = (
-        (df["action"] != "None")
-        & has_variants
-        & df["draft_variants"].apply(
-            lambda v: v is not None and AT_RISK_APPEND_SENTENCE in v[0]["message"]
-        )
-    )
-    print(f"\nDrafts with the extra at-risk sentence appended: {int(with_appended_note.sum())}")
+    at_risk_with_draft = (df["action"] != "None") & has_variants & df["is_at_risk"].fillna(False)
+    print(f"\nAt-risk accounts with a drafted (behavior-only) email: {int(at_risk_with_draft.sum())}")
 
     print("\n" + "=" * 60)
     print("EXAMPLE DRAFTS")
@@ -1043,23 +1017,13 @@ def _print_summary(df: pd.DataFrame) -> None:
     drafted = df[has_variants]
     examples = []
     seen_actions = set()
-    # Prefer one example per distinct action, then one that has the
-    # appended at-risk sentence, so the samples cover different tones.
+    # One example per distinct action, so the samples cover different tones.
     for _, row in drafted.iterrows():
         if row["action"] not in seen_actions:
             examples.append(row)
             seen_actions.add(row["action"])
         if len(examples) >= 3:
             break
-
-    appended_example = df[with_appended_note]
-    if not appended_example.empty and not any(
-        r["account_id"] == appended_example.iloc[0]["account_id"] for r in examples
-    ):
-        if len(examples) >= 3:
-            examples[-1] = appended_example.iloc[0]
-        else:
-            examples.append(appended_example.iloc[0])
 
     for row in examples:
         print(f"\n--- {row['account_id']}  |  segment: {row['segment']}  |  action: {row['action']} ---")

@@ -26,7 +26,7 @@ from src.nba import (
     explain_growth_lever_default,
 )
 from src.pipeline import run_batch_pipeline, run_pipeline
-from src.scoring import compute_health_score
+from src.scoring import compute_health_score, internal_recommendation
 from src.segmentation import ACCOUNT_MANAGED, SELF_SERVE
 from src.state import (
     DEFAULT_DB_PATH,
@@ -139,6 +139,31 @@ h2, h3 {
 }
 .badge-inline-sage { color: #6B8F71; }
 .badge-inline-rust { color: #C1502E; }
+
+/* Internal-only AM recommendation -- deliberately distinct from the
+   customer-facing draft below it (Drafted outreach), so there's no chance
+   of mistaking internal account-health guidance for something that gets
+   sent. */
+.internal-note-box {
+    background: #F6DCD2;
+    border: 1px solid #C1502E;
+    border-left: 4px solid #C1502E;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin: 12px 0;
+}
+.internal-note-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #7A2F16;
+    margin-bottom: 4px;
+}
+.internal-note-body {
+    font-size: 0.88rem;
+    color: #4A4640;
+}
 
 /* Stage stepper */
 .stepper-step {
@@ -963,6 +988,16 @@ def _render_account_overview(row) -> None:
         st.markdown(
             f'<span class="badge-inline badge-inline-{factor_color}">{factor_arrow}</span> '
             f'{html.escape(factor["label"])}',
+            unsafe_allow_html=True,
+        )
+
+    internal_note = internal_recommendation(row, score)
+    if internal_note:
+        st.markdown(
+            '<div class="internal-note-box">'
+            '<div class="internal-note-label">Internal only — not sent to customer</div>'
+            f'<div class="internal-note-body">{html.escape(internal_note)}</div>'
+            '</div>',
             unsafe_allow_html=True,
         )
 

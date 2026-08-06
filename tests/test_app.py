@@ -394,6 +394,51 @@ def test_self_serve_nudge_touch_variants_differ_across_stages_for_same_tone(app)
     assert len({touch1_message, touch2_message, touch3_message}) == 3
 
 
+# ---------------------------------------------------------------------
+# Internal recommendation: account-health context surfaces in a separate,
+# distinctly-styled "Internal only" box -- never mixed into the
+# customer-facing draft above/below it.
+# ---------------------------------------------------------------------
+def test_self_serve_nudge_gone_cold_account_shows_pure_email_and_internal_note(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    row = _first_account(
+        df,
+        lambda d: (d["action"] == "Self-Serve Nudge")
+        & (d["is_at_risk"] == True)  # noqa: E712
+        & (d["at_risk_detail"] == "Already Gone"),
+    )
+    account_id = row["account_id"]
+    at = _open_account(at, account_id)
+
+    for tone in TONES:
+        tone_radio = at.radio(key=f"tone_{account_id}")
+        at = tone_radio.set_value(tone).run()
+        message = at.text_area(key=f"message_{account_id}_{tone}").value
+        assert "declining spend" not in message
+        assert "attention beyond this message" not in message
+
+    markdown_values = " ".join(m.value for m in at.markdown)
+    assert 'class="internal-note-box"' in markdown_values
+    assert "Internal only — not sent to customer" in markdown_values
+    assert "recommend AM review" in markdown_values
+
+
+def test_healthy_account_shows_no_internal_note_section(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    scores = df.apply(lambda r: compute_health_score(r)[0], axis=1)
+    row = _first_account(
+        df.assign(_health_score=scores),
+        lambda d: (d["is_at_risk"] == False) & (d["_health_score"] > 35),  # noqa: E712
+    )
+    account_id = row["account_id"]
+    at = _open_account(at, account_id)
+
+    markdown_values = " ".join(m.value for m in at.markdown)
+    assert 'class="internal-note-box"' not in markdown_values
+
+
 def test_other_action_types_never_show_touch_label_regardless_of_touch_count(app):
     # Win-back play / Retention check-in are the only remaining action types
     # without touch-count-aware variants — Self-Serve Nudge and all 5 Growth

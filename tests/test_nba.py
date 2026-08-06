@@ -13,7 +13,6 @@ import math
 import pytest
 
 from src.nba import (
-    AT_RISK_APPEND_SENTENCE,
     GROWTH_LEVER_ACTIONS,
     TONES,
     draft_growth_lever_stage,
@@ -87,20 +86,16 @@ def test_each_touch_stage_has_a_distinct_message_per_tone():
         assert t1[tone] != t3[tone]
 
 
-def test_at_risk_sentence_appended_across_all_touch_stages():
-    row = make_row(is_at_risk=True)
+def test_self_serve_nudge_messages_identical_at_risk_or_not():
+    """Customer-facing drafts are pure behavior-focused content -- is_at_risk
+    must never change what the customer sees. Account health concerns are
+    surfaced separately via src.scoring.internal_recommendation."""
+    at_risk_row = make_row(is_at_risk=True)
+    healthy_row = make_row(is_at_risk=False)
     for touch_count in (0, 1, 2):
-        _, variants = draft_self_serve_nudge_stage(row, touch_count)
-        for variant in variants:
-            assert AT_RISK_APPEND_SENTENCE in variant["message"]
-
-
-def test_no_at_risk_sentence_when_not_at_risk():
-    row = make_row(is_at_risk=False)
-    for touch_count in (0, 1, 2):
-        _, variants = draft_self_serve_nudge_stage(row, touch_count)
-        for variant in variants:
-            assert AT_RISK_APPEND_SENTENCE not in variant["message"]
+        _, at_risk_variants = draft_self_serve_nudge_stage(at_risk_row, touch_count)
+        _, healthy_variants = draft_self_serve_nudge_stage(healthy_row, touch_count)
+        assert at_risk_variants == healthy_variants
 
 
 # ---------------------------------------------------------------------
@@ -154,12 +149,13 @@ def test_growth_lever_each_touch_stage_is_distinct_per_tone(action):
 
 
 @pytest.mark.parametrize("action", GROWTH_LEVER_ACTIONS)
-def test_growth_lever_at_risk_sentence_appended_across_all_stages(action):
-    row = make_growth_row(is_at_risk=True)
+def test_growth_lever_messages_identical_at_risk_or_not(action):
+    at_risk_row = make_growth_row(is_at_risk=True)
+    healthy_row = make_growth_row(is_at_risk=False)
     for touch_count in (0, 1, 2):
-        _, variants = draft_growth_lever_stage(row, action, touch_count)
-        for variant in variants:
-            assert AT_RISK_APPEND_SENTENCE in variant["message"]
+        _, at_risk_variants = draft_growth_lever_stage(at_risk_row, action, touch_count)
+        _, healthy_variants = draft_growth_lever_stage(healthy_row, action, touch_count)
+        assert at_risk_variants == healthy_variants
 
 
 def test_offer_tool_nudge_never_mentions_discount_or_promotion():
