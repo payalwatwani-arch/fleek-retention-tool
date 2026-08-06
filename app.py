@@ -559,8 +559,9 @@ def _overview_bucket(row) -> str:
     is_at_risk/at_risk_detail flag takes priority over the primary segment,
     so an account flagged at-risk is bucketed as such regardless of which
     primary segment (e.g. Broker-Reliant, Growth Headroom) it's in --
-    matching the Status filter's treatment of the same flag. Each account
-    lands in exactly one of the 5 buyer-facing groups."""
+    matching the Segment filter's treatment of the same flag (the filter
+    reuses this same function). Each account lands in exactly one of the
+    5 buyer-facing groups."""
     if row.get("is_at_risk") and row.get("at_risk_detail") == "Already Gone":
         return "Gone Cold"
     if row.get("is_at_risk") and row.get("at_risk_detail") == "Declining":
@@ -646,30 +647,26 @@ def _status_line(row) -> str:
     return f"Follow-up needed (touch {row['touch_count']})"
 
 
-STATUS_FILTER_SEGMENTS = {
-    "At Risk": "Declining",
-    "Gone Cold": "Already Gone",
-    "Healthy": ["Healthy AM", "Self-Serve, No Headroom"],
-}
+SEGMENT_FILTER_OPTIONS = [
+    "All",
+    "Steady",
+    "Opportunity",
+    "Gone Cold",
+    "At Risk",
+    "Self-Serve Nudge",
+]
 
 
-def _status_filter_mask(df, status: str):
-    """Boolean mask for the Status dropdown. "At Risk"/"Gone Cold" match
-    either the primary segment or the secondary at-risk flag, so accounts
-    tagged at-risk under a different primary segment aren't missed."""
-    if status == "At Risk":
-        return (df["segment"] == "Declining") | (
-            df["is_at_risk"] & (df["at_risk_detail"] == "Declining")
-        )
-    if status == "Gone Cold":
-        return (df["segment"] == "Already Gone") | (
-            df["is_at_risk"] & (df["at_risk_detail"] == "Already Gone")
-        )
-    return df["segment"].isin(STATUS_FILTER_SEGMENTS["Healthy"])
+def _segment_filter_mask(df, segment: str):
+    """Boolean mask for the Segment dropdown. Reuses _overview_bucket --
+    the exact same categorization already built and tested for the
+    Portfolio at a glance bar -- so an account lands in the same one of
+    the 5 buyer-facing buckets everywhere in the app."""
+    return df.apply(_overview_bucket, axis=1) == segment
 
 
 def _apply_filters(
-    df, region: str, persona: str, ownership: str, status: str, account_id_search: str = ""
+    df, region: str, persona: str, ownership: str, segment: str, account_id_search: str = ""
 ):
     filtered = df
     if region != "All":
@@ -678,8 +675,8 @@ def _apply_filters(
         filtered = filtered[filtered["buyer_persona"] == persona]
     if ownership != "All":
         filtered = filtered[filtered["ownership"] == ownership]
-    if status != "All":
-        filtered = filtered[_status_filter_mask(filtered, status)]
+    if segment != "All":
+        filtered = filtered[_segment_filter_mask(filtered, segment)]
     if account_id_search.strip():
         filtered = filtered[
             filtered["account_id"].str.contains(account_id_search.strip(), case=False, na=False)
@@ -1388,11 +1385,11 @@ elif view == "Pipeline":
         with ownership_col:
             ownership = st.selectbox("Ownership", ["All", ACCOUNT_MANAGED, SELF_SERVE])
         with status_col:
-            status = st.selectbox("Status", ["All"] + list(STATUS_FILTER_SEGMENTS.keys()))
+            segment = st.selectbox("Segment", SEGMENT_FILTER_OPTIONS)
         with search_col:
             account_id_search = st.text_input("Search")
 
-        filtered_df = _apply_filters(df, region, persona, ownership, status, account_id_search)
+        filtered_df = _apply_filters(df, region, persona, ownership, segment, account_id_search)
 
         _apply_pending_checkbox_clear()
 
