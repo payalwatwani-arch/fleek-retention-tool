@@ -132,8 +132,12 @@ def load_and_clean(filepath) -> tuple[pd.DataFrame, dict]:
     `load_new_accounts_batch()` but checking columns rather than just
     tolerating any single sheet:
 
-      1. A sheet literally named `Accounts` (ACCOUNTS_SHEET) -- current
-         behavior, unchanged. `new_accounts` is still read separately.
+      1. A sheet literally named `Accounts` (ACCOUNTS_SHEET). If a
+         `new_accounts` sheet is also present, it's read and merged in as
+         before (fully-combined-file behavior, unchanged). If it's absent,
+         the Accounts sheet is still used as the base dataset, with 0 new
+         accounts this run -- same as an Accounts-only upload standing in
+         for the batch uploader.
       2. Else, if the workbook has exactly one sheet total, that one --
          but only if it actually has every column the rest of the pipeline
          (segmentation, scoring, nba) needs (REQUIRED_ACCOUNT_COLUMNS).
@@ -148,7 +152,10 @@ def load_and_clean(filepath) -> tuple[pd.DataFrame, dict]:
 
     if ACCOUNTS_SHEET in sheet_names:
         accounts_df = pd.read_excel(workbook, sheet_name=ACCOUNTS_SHEET)
-        new_df = pd.read_excel(workbook, sheet_name=NEW_ACCOUNTS_SHEET)
+        if NEW_ACCOUNTS_SHEET in sheet_names:
+            new_df = pd.read_excel(workbook, sheet_name=NEW_ACCOUNTS_SHEET)
+        else:
+            new_df = pd.DataFrame(columns=accounts_df.columns)
     elif len(sheet_names) == 1:
         candidate_df = pd.read_excel(workbook, sheet_name=sheet_names[0])
         missing = sorted(REQUIRED_ACCOUNT_COLUMNS - set(candidate_df.columns))

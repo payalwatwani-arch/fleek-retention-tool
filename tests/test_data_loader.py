@@ -127,6 +127,21 @@ class TestLoadAndCleanSheetSelection:
         assert set(clean_df["account_id"]) == {"ACC-001", "ACC-002", "ACC-003"}
         assert report["accounts_new_count"] == 1
 
+    def test_uses_accounts_sheet_when_new_accounts_absent(self, tmp_path):
+        """A workbook with only an `Accounts` sheet (correctly named, no
+        `new_accounts` companion) loads successfully as the base dataset,
+        with 0 new accounts this run -- same principle as the single
+        arbitrarily-named sheet case, but for the Accounts-named sheet."""
+        path = tmp_path / "book.xlsx"
+        accounts = _full_account_rows(["ACC-001", "ACC-002"])
+        _write_workbook(path, {"Accounts": accounts})
+
+        clean_df, report = load_and_clean(path)
+
+        assert set(clean_df["account_id"]) == {"ACC-001", "ACC-002"}
+        assert report["accounts_new_count"] == 0
+        assert report["accounts_updated_count"] == 0
+
     def test_uses_single_arbitrarily_named_sheet_with_full_schema(self, tmp_path):
         path = tmp_path / "book.xlsx"
         rows = _full_account_rows(["ACC-001", "ACC-002"])
