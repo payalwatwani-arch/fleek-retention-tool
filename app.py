@@ -668,7 +668,9 @@ def _status_filter_mask(df, status: str):
     return df["segment"].isin(STATUS_FILTER_SEGMENTS["Healthy"])
 
 
-def _apply_filters(df, region: str, persona: str, ownership: str, status: str):
+def _apply_filters(
+    df, region: str, persona: str, ownership: str, status: str, account_id_search: str = ""
+):
     filtered = df
     if region != "All":
         filtered = filtered[filtered["region"] == region]
@@ -678,6 +680,10 @@ def _apply_filters(df, region: str, persona: str, ownership: str, status: str):
         filtered = filtered[filtered["ownership"] == ownership]
     if status != "All":
         filtered = filtered[_status_filter_mask(filtered, status)]
+    if account_id_search.strip():
+        filtered = filtered[
+            filtered["account_id"].str.contains(account_id_search.strip(), case=False, na=False)
+        ]
     return filtered
 
 
@@ -1365,8 +1371,8 @@ elif view == "Pipeline":
     else:
         st.header("Pipeline")
 
-        icon_col, region_col, persona_col, ownership_col, status_col = st.columns(
-            [1.1, 2, 2, 2, 1.5]
+        icon_col, region_col, persona_col, ownership_col, status_col, search_col = st.columns(
+            [1.1, 2, 2, 2, 1.5, 2]
         )
         with icon_col:
             st.markdown("&nbsp;")
@@ -1383,8 +1389,10 @@ elif view == "Pipeline":
             ownership = st.selectbox("Ownership", ["All", ACCOUNT_MANAGED, SELF_SERVE])
         with status_col:
             status = st.selectbox("Status", ["All"] + list(STATUS_FILTER_SEGMENTS.keys()))
+        with search_col:
+            account_id_search = st.text_input("Search account ID")
 
-        filtered_df = _apply_filters(df, region, persona, ownership, status)
+        filtered_df = _apply_filters(df, region, persona, ownership, status, account_id_search)
 
         _apply_pending_checkbox_clear()
 

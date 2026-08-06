@@ -967,6 +967,36 @@ def test_default_filters_show_everything(app):
     assert f"**New ({len(df)})**" in headers
 
 
+def test_account_id_search_narrows_board_and_combines_with_status_filter(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+
+    row = _first_account(df, lambda d: d["segment"] == "Declining")
+    account_id = row["account_id"]
+    substring = account_id[-4:]
+    assert int(df["account_id"].str.contains(substring, case=False).sum()) == 1
+
+    search_input = [t for t in at.text_input if t.label == "Search account ID"][0]
+    at = search_input.set_value(substring).run()
+    assert not at.exception
+    assert _card_markdown(at, account_id)
+    headers = _column_headers(at)
+    assert f"**New (1)**" in headers
+
+    # Combined AND'd with the Status filter: matching status keeps the
+    # single search result; a non-matching status filters it out to zero.
+    status_select = [s for s in at.selectbox if s.label == "Status"][0]
+    at = status_select.set_value("At Risk").run()
+    assert not at.exception
+    headers = _column_headers(at)
+    assert f"**New (1)**" in headers
+
+    at = status_select.set_value("Healthy").run()
+    assert not at.exception
+    headers = _column_headers(at)
+    assert "**New (0)**" in headers
+
+
 # ---------------------------------------------------------------------
 # Multi-select + bulk actions
 # ---------------------------------------------------------------------
