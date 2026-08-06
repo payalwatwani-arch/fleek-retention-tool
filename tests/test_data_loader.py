@@ -16,7 +16,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.data_loader import load_new_accounts_batch
+from src.data_loader import REQUIRED_ACCOUNT_COLUMNS, load_and_clean, load_new_accounts_batch
 
 SAMPLE_ROWS = pd.DataFrame(
     {
@@ -31,6 +31,26 @@ def _write_workbook(path, sheets: dict) -> None:
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
         for sheet_name, df in sheets.items():
             df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+
+def _full_account_rows(ids) -> pd.DataFrame:
+    """Rows carrying every column REQUIRED_ACCOUNT_COLUMNS lists, filled
+    with values that clear load_and_clean's cleaning steps cleanly (a
+    baseline-eligible trend, a real account_status) so these tests only
+    exercise sheet selection, not the cleaning logic covered elsewhere."""
+    n = len(ids)
+    data = {col: [f"{col}-val"] * n for col in REQUIRED_ACCOUNT_COLUMNS}
+    data.update(
+        {
+            "account_id": list(ids),
+            "gmv_total_6m": [1000.0] * n,
+            "gmv_sep": [1000.0] * n,
+            "gmv_trend_pct": [0.0] * n,
+            "tenure_months": [12] * n,
+            "account_status": ["Active"] * n,
+        }
+    )
+    return pd.DataFrame(data)
 
 
 def test_reads_new_accounts_sheet_when_present(tmp_path):
@@ -88,3 +108,53 @@ def test_raises_clear_error_on_ambiguous_sheets(tmp_path):
 
     assert "January" in str(excinfo.value)
     assert "February" in str(excinfo.value)
+
+
+class TestLoadAndCleanSheetSelection:
+    """load_and_clean()'s base-dataset sheet selection: same "check columns,
+    not just names" principle as load_new_accounts_batch(), but validated
+    against the full account schema (REQUIRED_ACCOUNT_COLUMNS) since the
+    rest of the pipeline -- not just load_and_clean itself -- depends on it."""
+
+    def test_uses_accounts_sheet_by_name_when_present(self, tmp_path):
+        path = tmp_path / "book.xlsx"
+        accounts = _full_account_rows(["ACC-001", "ACC-002"])
+        new_accounts = _full_account_rows(["ACC-003"])
+        _write_workbook(path, {"Accounts": accounts, "new_accounts": new_accounts})
+
+        clean_df, report = load_and_clean(path)
+
+        assert set(clean_df["account_id"]) == {"ACC-001", "ACC-002", "ACC-003"}
+        assert report["accounts_new_count"] == 1
+
+    def test_uses_single_arbitrarily_named_sheet_with_full_schema(self, tmp_path):
+        path = tmp_path / "book.xlsx"
+        rows = _full_account_rows(["ACC-001", "ACC-002"])
+        _write_workbook(path, {"Q3 Export": rows})
+
+        clean_df, report = load_and_clean(path)
+
+        assert set(clean_df["account_id"]) == {"ACC-001", "ACC-002"}
+        assert report["accounts_new_count"] == 0
+        assert report["accounts_updated_count"] == 0
+
+    def test_raises_when_single_sheet_missing_required_columns(self, tmp_path):
+        path = tmp_path / "book.xlsx"
+        _write_workbook(path, {"Sheet1": SAMPLE_ROWS})
+
+        with pytest.raises(ValueError) as excinfo:
+            load_and_clean(path)
+
+        assert "Sheet1" in str(excinfo.value)
+        assert "gmv_trend_pct" in str(excinfo.value)
+
+    def test_raises_clear_error_on_ambiguous_sheets(self, tmp_path):
+        path = tmp_path / "book.xlsx"
+        rows = _full_account_rows(["ACC-001"])
+        _write_workbook(path, {"January": rows, "February": rows})
+
+        with pytest.raises(ValueError) as excinfo:
+            load_and_clean(path)
+
+        assert "January" in str(excinfo.value)
+        assert "February" in str(excinfo.value)

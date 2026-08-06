@@ -34,6 +34,45 @@ MIN_TENURE_FOR_TREND = 6
 
 DEFAULT_DEMO_PATH = Path("data/raw/demo_accounts.xlsx")
 
+# The full account schema the rest of the pipeline (segmentation, scoring,
+# nba) depends on -- kept in sync by hand with _build_demo_workbook's
+# make_rows(). A sheet missing any of these would pass a narrower check here
+# only to crash later, deeper in the pipeline, with a far more confusing
+# error, so load_and_clean() validates against the whole set up front.
+REQUIRED_ACCOUNT_COLUMNS = frozenset(
+    {
+        "account_id",
+        "ownership",
+        "broker_reliance_pct",
+        "app_active_days_6m",
+        "pdp_views_6m",
+        "make_an_offer_6m",
+        "chat_threads",
+        "video_call_requests",
+        "bundle_gmv_share_pct",
+        "handpick_orders",
+        "bundle_orders",
+        "gmv_total_6m",
+        "gmv_sep",
+        "gmv_oct",
+        "gmv_nov",
+        "gmv_dec",
+        "gmv_jan",
+        "gmv_feb",
+        "gmv_trend_pct",
+        "tenure_months",
+        "orders_6m",
+        "buyer_persona",
+        "region",
+        "country",
+        "account_status",
+        "csm_owner",
+        "signup_date",
+        "last_login_date",
+        "notes",
+    }
+)
+
 
 def _count_blanks(df: pd.DataFrame) -> dict:
     return {col: int(df[col].isna().sum()) for col in df.columns}
@@ -86,10 +125,48 @@ def _resolve_trend_baseline(df: pd.DataFrame):
 
 
 def load_and_clean(filepath) -> tuple[pd.DataFrame, dict]:
-    """Read the Accounts + new_accounts tabs, merge new_accounts in
-    idempotently, and clean blanks with intent. Returns (clean_df, report)."""
-    accounts_df = pd.read_excel(filepath, sheet_name=ACCOUNTS_SHEET)
-    new_df = pd.read_excel(filepath, sheet_name=NEW_ACCOUNTS_SHEET)
+    """Read the base account book + new_accounts tab, merge new_accounts in
+    idempotently, and clean blanks with intent. Returns (clean_df, report).
+
+    Sheet selection for the base account book, same principle as
+    `load_new_accounts_batch()` but checking columns rather than just
+    tolerating any single sheet:
+
+      1. A sheet literally named `Accounts` (ACCOUNTS_SHEET) -- current
+         behavior, unchanged. `new_accounts` is still read separately.
+      2. Else, if the workbook has exactly one sheet total, that one --
+         but only if it actually has every column the rest of the pipeline
+         (segmentation, scoring, nba) needs (REQUIRED_ACCOUNT_COLUMNS).
+         There's no separate new_accounts sheet to merge in this case.
+
+    Raises ValueError (listing sheet names, or missing columns) rather than
+    letting a malformed file fail with a cryptic error, or silently pass a
+    check here only to crash deeper in the pipeline later.
+    """
+    workbook = pd.ExcelFile(filepath)
+    sheet_names = workbook.sheet_names
+
+    if ACCOUNTS_SHEET in sheet_names:
+        accounts_df = pd.read_excel(workbook, sheet_name=ACCOUNTS_SHEET)
+        new_df = pd.read_excel(workbook, sheet_name=NEW_ACCOUNTS_SHEET)
+    elif len(sheet_names) == 1:
+        candidate_df = pd.read_excel(workbook, sheet_name=sheet_names[0])
+        missing = sorted(REQUIRED_ACCOUNT_COLUMNS - set(candidate_df.columns))
+        if missing:
+            raise ValueError(
+                f"Sheet '{sheet_names[0]}' is missing required account "
+                f"columns: {missing!r}. Expected a sheet named "
+                f"'{ACCOUNTS_SHEET}', or a single sheet with all of "
+                f"{sorted(REQUIRED_ACCOUNT_COLUMNS)!r}."
+            )
+        accounts_df = candidate_df
+        new_df = pd.DataFrame(columns=accounts_df.columns)
+    else:
+        raise ValueError(
+            "Could not determine which sheet holds the account book: found "
+            f"{len(sheet_names)} sheets {sheet_names!r}. Expected a sheet "
+            f"named '{ACCOUNTS_SHEET}', or a workbook with exactly one sheet."
+        )
 
     rows_before = len(accounts_df) + len(new_df)
 
