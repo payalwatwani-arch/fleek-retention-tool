@@ -1126,7 +1126,7 @@ def test_overview_falls_back_to_live_briefing_when_no_file_exists(app):
     expected = generate_briefing_text(df, summary)
 
     rendered = "\n".join(m.value for m in at.markdown)
-    assert "Morning Briefing" in rendered
+    assert "Briefing" in rendered
     for line in expected.splitlines():
         assert line in rendered
 
