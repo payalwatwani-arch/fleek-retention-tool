@@ -1199,6 +1199,7 @@ def _render_needs_attention(df: pd.DataFrame) -> None:
     )
 
     new_df = _stage_accounts(df, STAGE_NEW)
+    new_df = new_df[new_df["action"] != "None"]
     if new_df.empty:
         st.caption("No accounts awaiting first contact.")
         return

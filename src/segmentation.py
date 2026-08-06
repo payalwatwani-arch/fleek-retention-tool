@@ -124,6 +124,19 @@ def segment_accounts(df: pd.DataFrame) -> pd.DataFrame:
     df.loc[already_gone_signal, "at_risk_detail"] = "Already Gone"
     df.loc[declining_signal, "at_risk_detail"] = "Declining"
 
+    # --- Re-engage: fallback for accounts still "None" after every other
+    # signal above has had its chance to claim them. Distinct from Declining
+    # (which requires a real drop from a real baseline) -- this is for
+    # accounts with essentially no activity since onboarding at all. ---
+    still_unclaimed = df["action"] == "None"
+    dormant_since_onboarding = (
+        still_unclaimed
+        & (df["app_active_days_6m"] == 0)
+        & (df["pdp_views_6m"] == 0)
+        & (df["orders_6m"] <= 1)
+    )
+    df.loc[dormant_since_onboarding, "action"] = "Re-engage"
+
     return df
 
 
