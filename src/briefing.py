@@ -66,7 +66,7 @@ def generate_briefing_text(df: pd.DataFrame, summary: dict) -> str:
             f" The most common reason accounts are struggling right now is {top_factor}."
         )
 
-    lines = ["## Morning Briefing", "", narrative, "", "### Since last run"]
+    lines = ["## Briefing", "", narrative, "", "### Since last run"]
 
     new_count = summary.get("new_count", 0)
     follow_up_count = summary.get("follow_up_count", 0)
