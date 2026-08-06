@@ -26,7 +26,7 @@ from .segmentation import segment_accounts
 # Actions whose template is itself the at-risk message — appending the
 # generic "also showing declining spend" sentence to these would be
 # redundant, since is_at_risk is always True for rows carrying them.
-AT_RISK_APPEND_EXEMPT = {"Win-back play", "Retention check-in", "None"}
+AT_RISK_APPEND_EXEMPT = {"Win-back play", "Retention check-in", "None", "Re-engage"}
 
 
 def _account_label(row) -> str:
@@ -291,6 +291,49 @@ def _draft_retention_checkin(row) -> list[dict[str, str]]:
                 f"your end — whether related to pricing, product fit, or your point of contact — that we should "
                 f"be aware of. We would be glad to arrange a call at your convenience.\n\n"
                 f"Regards,\nThe Fleek Team"
+            ),
+        },
+    ]
+
+
+def _draft_reengage(row) -> list[dict[str, str]]:
+    label = _account_label(row)
+    orders = row.get("orders_6m")
+    orders_str = "an unclear number of" if orders is None or pd.isna(orders) else f"{orders:.0f}"
+    return [
+        {
+            "tone": "Direct",
+            "subject": f"Checking in, {label}",
+            "message": (
+                f"Hi {label} team,\n\n"
+                f"No worries at all, just wanted to check in — we've seen {orders_str} orders from you and no "
+                f"activity since. If there's anything we can help with to get you back up and running, just let "
+                f"us know, we're happy to help.\n\n"
+                f"Hope to hear from you soon,\nThe Fleek Team"
+            ),
+        },
+        {
+            "tone": "Warm",
+            "subject": f"We miss you, {label}",
+            "message": (
+                f"Hi {label} team,\n\n"
+                f"Just wanted to reach out and say hi — we've seen {orders_str} orders from you so far, and it's "
+                f"been quiet since. No pressure at all, we just wanted to check in and see how things are going "
+                f"on your end. If there's anything we can help with — getting set up, answering questions, "
+                f"whatever it might be — we're genuinely happy to help.\n\n"
+                f"Hope to hear from you soon,\nThe Fleek Team"
+            ),
+        },
+        {
+            "tone": "Formal",
+            "subject": f"Checking in with {label}",
+            "message": (
+                f"Dear {label} team,\n\n"
+                f"We hope this note finds you well. Our records show {orders_str} orders placed to date, with no "
+                f"further activity since. We would simply like to check in and see how we might be of "
+                f"assistance, should you wish to pick back up. Please do not hesitate to reach out with any "
+                f"questions.\n\n"
+                f"Warm regards,\nThe Fleek Team"
             ),
         },
     ]
@@ -933,6 +976,7 @@ ACTION_TEMPLATES = {
     "Offer tool nudge": _draft_offer_tool_nudge,
     "Chat nudge": _draft_chat_nudge,
     "Video call nudge": _draft_video_call_nudge,
+    "Re-engage": _draft_reengage,
 }
 
 AT_RISK_APPEND_SENTENCE = (
