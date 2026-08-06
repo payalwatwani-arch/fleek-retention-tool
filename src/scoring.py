@@ -173,19 +173,39 @@ def internal_recommendation(row, score: int) -> str | None:
     """Internal-only guidance for an Account Manager, kept separate from the
     customer-facing draft in src/nba.py so account-health context never
     leaks into what the customer sees. Returns None when there's nothing to
-    flag (healthy account, not at risk)."""
+    flag (healthy account, not at risk).
+
+    Wording is deliberately supportive/growth-oriented rather than
+    monitoring-focused -- this reads to the AM as "here's an opportunity to
+    help," not a compliance flag. Still cites the real number behind the
+    flag, since the AM needs that to act on it -- only the framing softened."""
     at_risk_detail = row.get("at_risk_detail")
 
     if bool(row.get("is_at_risk")):
         if at_risk_detail == "Already Gone":
             trend = row.get("gmv_trend_pct")
-            drop = f"{abs(float(trend)):.0f}%" if trend is not None and not pd.isna(trend) else "sharply"
-            return f"GMV dropped {drop} — recommend AM review before sending automated outreach."
+            drop = f"{abs(float(trend)):.0f}%" if trend is not None and not pd.isna(trend) else "to zero"
+            return (
+                f"This account may need extra support — spend has dropped {drop}. Worth a "
+                "personal check-in alongside the automated outreach, since this looks like "
+                "more than routine reliance."
+            )
         if at_risk_detail == "Declining":
-            return "Declining trend — monitor closely."
-        return "Account flagged at-risk — recommend AM review before sending automated outreach."
+            trend = row.get("gmv_trend_pct")
+            trend_str = f" ({trend:.0f}%)" if trend is not None and not pd.isna(trend) else ""
+            return (
+                f"Spend is trending down{trend_str}. A quick personal touch alongside the "
+                "automated nudge could help catch this early."
+            )
+        return (
+            "This account is flagged at-risk. Worth a closer look alongside the automated "
+            "outreach."
+        )
 
     if score <= CRITICAL_HEALTH_SCORE_THRESHOLD:
-        return f"Health score critically low ({score}/100) — recommend AM review of overall account health."
+        return (
+            f"Overall account health is low ({score}/100). Worth a closer look before "
+            "relying on automated outreach alone."
+        )
 
     return None

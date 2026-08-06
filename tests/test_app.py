@@ -29,7 +29,7 @@ import pandas as pd
 
 from app import NO_ACTION, SEGMENT_DISPLAY_NAMES, OVERVIEW_BUCKET_COLORS, _overview_bucket
 from src.briefing import generate_briefing_text
-from src.nba import GROWTH_LEVER_ACTIONS, TONES
+from src.nba import GROWTH_LEVER_ACTIONS, TONES, _AT_RISK_CHECKIN_SENTENCES
 from src.scoring import compute_health_score
 from src.state import STAGE_ACTIONED, STAGE_FOLLOW_UP, STAGE_NEW, add_note, add_task, get_by_stage, DEFAULT_DB_PATH
 
@@ -399,7 +399,7 @@ def test_self_serve_nudge_touch_variants_differ_across_stages_for_same_tone(app)
 # distinctly-styled "Internal only" box -- never mixed into the
 # customer-facing draft above/below it.
 # ---------------------------------------------------------------------
-def test_self_serve_nudge_gone_cold_account_shows_pure_email_and_internal_note(app):
+def test_self_serve_nudge_gone_cold_account_shows_neutral_email_and_internal_note(app):
     at = _open_pipeline(app)
     df = at.session_state.df
     row = _first_account(
@@ -415,13 +415,22 @@ def test_self_serve_nudge_gone_cold_account_shows_pure_email_and_internal_note(a
         tone_radio = at.radio(key=f"tone_{account_id}")
         at = tone_radio.set_value(tone).run()
         message = at.text_area(key=f"message_{account_id}_{tone}").value
+        # The customer email carries a generic check-in sentence, but no
+        # specifics about *why* -- that stays internal-only. Scoped to the
+        # appended sentence itself: the original template body is free to
+        # use ordinary words like "noticed" for unrelated things (e.g. the
+        # Warm tone's "we noticed about X% of your recent orders...").
+        checkin_sentence = _AT_RISK_CHECKIN_SENTENCES[tone]
+        assert checkin_sentence in message
         assert "declining spend" not in message
         assert "attention beyond this message" not in message
+        for term in ("declining", "slowed", "trend", "%"):
+            assert term not in checkin_sentence.lower()
 
     markdown_values = " ".join(m.value for m in at.markdown)
     assert 'class="internal-note-box"' in markdown_values
     assert "Internal only — not sent to customer" in markdown_values
-    assert "recommend AM review" in markdown_values
+    assert "may need extra support" in markdown_values
 
 
 def test_healthy_account_shows_no_internal_note_section(app):
@@ -437,6 +446,24 @@ def test_healthy_account_shows_no_internal_note_section(app):
 
     markdown_values = " ".join(m.value for m in at.markdown)
     assert 'class="internal-note-box"' not in markdown_values
+
+
+def test_non_at_risk_account_email_has_no_checkin_sentence_appended(app):
+    at = _open_pipeline(app)
+    df = at.session_state.df
+    row = _first_account(
+        df,
+        lambda d: (d["is_at_risk"] == False) & (d["action"] != "None"),  # noqa: E712
+    )
+    account_id = row["account_id"]
+    at = _open_account(at, account_id)
+
+    for tone in TONES:
+        tone_radio = at.radio(key=f"tone_{account_id}")
+        at = tone_radio.set_value(tone).run()
+        message = at.text_area(key=f"message_{account_id}_{tone}").value
+        for sentence in _AT_RISK_CHECKIN_SENTENCES.values():
+            assert sentence not in message
 
 
 def test_other_action_types_never_show_touch_label_regardless_of_touch_count(app):

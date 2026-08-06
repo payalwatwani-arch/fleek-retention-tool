@@ -39,6 +39,35 @@ def _pct(value, decimals: int = 0) -> str:
 
 TONES = ["Direct", "Warm", "Formal"]
 
+# Appended, one per tone, to every variant's message when is_at_risk is True
+# and a primary action is being sent. Deliberately generic -- no numbers, no
+# trend language, no words like "noticed"/"declining"/"slowed" -- so it reads
+# as a standalone check-in that could apply to any customer and reveals
+# nothing about why it's there. The actual risk context stays internal-only
+# (see src.scoring.internal_recommendation).
+_AT_RISK_CHECKIN_SENTENCES = {
+    "Direct": (
+        "One more thing: we wanted to check in on how things are going, and see if "
+        "there's anything we can do to help you get more value from the platform."
+    ),
+    "Warm": (
+        "We also wanted to check in and see how things are going — and whether there's "
+        "anything we can do to help you get even more value from the platform."
+    ),
+    "Formal": (
+        "We would also like to take this opportunity to check in and see how things are "
+        "progressing, and whether there is anything further we can do to help you derive "
+        "additional value from the platform."
+    ),
+}
+
+
+def _append_at_risk_checkin(variants: list[dict[str, str]]) -> list[dict[str, str]]:
+    for variant in variants:
+        sentence = _AT_RISK_CHECKIN_SENTENCES[variant["tone"]]
+        variant["message"] = f"{variant['message']}\n\n{sentence}"
+    return variants
+
 
 def _draft_migration_play(row) -> list[dict[str, str]]:
     label = _account_label(row)
@@ -186,11 +215,12 @@ def draft_self_serve_nudge_stage(row, touch_count) -> tuple[int, list[dict[str, 
     """Select the Self-Serve Nudge message variants matching an account's
     real `touch_count` from the state database. Returns `(touch_stage,
     variants)` where `touch_stage` is 1/2/3 (for a "Touch N" display label)
-    and `variants` is the usual list of 3 tone dicts — pure behavior-focused
-    content regardless of the account's at-risk status. Account health
-    concerns surface separately as an internal-only recommendation (see
-    `src.scoring.internal_recommendation`), never mixed into the
-    customer-facing message.
+    and `variants` is the usual list of 3 tone dicts. The message stays
+    behavior-focused; when the account is also flagged is_at_risk, one
+    generic, non-revealing check-in sentence is appended (see
+    `_AT_RISK_CHECKIN_SENTENCES`) -- the actual risk context (which metric,
+    how bad) stays internal-only (see `src.scoring.internal_recommendation`),
+    never disclosed to the customer.
 
     touch_count is None or NaN before a state row exists yet, which is
     equivalent to touch_count == 0 (first outreach, never actioned)."""
@@ -202,6 +232,8 @@ def draft_self_serve_nudge_stage(row, touch_count) -> tuple[int, list[dict[str, 
         touch_stage, variants = 3, _draft_migration_play_touch3(row)
 
     variants = [dict(variant) for variant in variants]
+    if bool(row.get("is_at_risk")):
+        variants = _append_at_risk_checkin(variants)
     return touch_stage, variants
 
 
@@ -924,6 +956,8 @@ def draft_growth_lever_stage(row, action: str, touch_count) -> tuple[int, list[d
         touch_stage, variants = 3, touch3_fn(row)
 
     variants = [dict(variant) for variant in variants]
+    if bool(row.get("is_at_risk")):
+        variants = _append_at_risk_checkin(variants)
     return touch_stage, variants
 
 
@@ -971,11 +1005,11 @@ ACTION_TEMPLATES = {
 def draft_actions(df: pd.DataFrame) -> pd.DataFrame:
     """Add a `draft_variants` column: a list of 3 tone-variant dicts
     (`{"tone", "subject", "message"}`, in Direct/Warm/Formal order), one
-    set per `action` value. "None" actions get `None`. Messages are always
-    pure behavior-focused content, regardless of `is_at_risk` — account
-    health concerns are surfaced separately as an internal-only
-    recommendation (see `src.scoring.internal_recommendation`), never
-    mixed into the customer-facing draft."""
+    set per `action` value. "None" actions get `None`. Accounts flagged
+    `is_at_risk` get one extra, generic check-in sentence appended (see
+    `_append_at_risk_checkin`) -- it names no metric or trend, so the
+    specific health concern stays internal-only (see
+    `src.scoring.internal_recommendation`), never disclosed to the customer."""
     df = df.copy()
     all_variants: list[list[dict[str, str]] | None] = []
 
@@ -988,6 +1022,8 @@ def draft_actions(df: pd.DataFrame) -> pd.DataFrame:
             continue
 
         variants = [dict(variant) for variant in template(row)]
+        if bool(row.get("is_at_risk")):
+            variants = _append_at_risk_checkin(variants)
         all_variants.append(variants)
 
     df["draft_variants"] = all_variants
@@ -1008,7 +1044,7 @@ def _print_summary(df: pd.DataFrame) -> None:
         print(f"  {str(action):<28} {count} accounts, {has_draft} drafted")
 
     at_risk_with_draft = (df["action"] != "None") & has_variants & df["is_at_risk"].fillna(False)
-    print(f"\nAt-risk accounts with a drafted (behavior-only) email: {int(at_risk_with_draft.sum())}")
+    print(f"\nAt-risk accounts with a drafted email (incl. the neutral check-in line): {int(at_risk_with_draft.sum())}")
 
     print("\n" + "=" * 60)
     print("EXAMPLE DRAFTS")

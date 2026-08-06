@@ -15,10 +15,23 @@ import pytest
 from src.nba import (
     GROWTH_LEVER_ACTIONS,
     TONES,
+    _AT_RISK_CHECKIN_SENTENCES,
     draft_growth_lever_stage,
     draft_self_serve_nudge_stage,
     explain_growth_lever_default,
 )
+
+# Words the neutral at-risk check-in sentence must never contain -- it should
+# read as a generic, standalone check-in that reveals nothing about why it's
+# there. "%" catches any trend/percentage figure creeping in.
+_CHECKIN_BANNED_TERMS = ["noticed", "declining", "slowed", "trend", "%"]
+
+
+def _assert_checkin_sentence_is_neutral(sentence: str) -> None:
+    lowered = sentence.lower()
+    for term in _CHECKIN_BANNED_TERMS:
+        assert term not in lowered, f"found banned term {term!r} in check-in sentence: {sentence!r}"
+    assert not any(char.isdigit() for char in sentence)
 
 
 def make_row(**overrides):
@@ -86,16 +99,28 @@ def test_each_touch_stage_has_a_distinct_message_per_tone():
         assert t1[tone] != t3[tone]
 
 
-def test_self_serve_nudge_messages_identical_at_risk_or_not():
-    """Customer-facing drafts are pure behavior-focused content -- is_at_risk
-    must never change what the customer sees. Account health concerns are
-    surfaced separately via src.scoring.internal_recommendation."""
+def test_self_serve_nudge_at_risk_appends_neutral_checkin_sentence():
+    """is_at_risk accounts get one extra, generic check-in sentence appended
+    -- never a specific number or trend/decline language, since the real
+    risk context stays internal-only (src.scoring.internal_recommendation).
+    Non-at-risk accounts see no change at all."""
     at_risk_row = make_row(is_at_risk=True)
     healthy_row = make_row(is_at_risk=False)
+
     for touch_count in (0, 1, 2):
         _, at_risk_variants = draft_self_serve_nudge_stage(at_risk_row, touch_count)
         _, healthy_variants = draft_self_serve_nudge_stage(healthy_row, touch_count)
-        assert at_risk_variants == healthy_variants
+
+        at_risk_by_tone = {v["tone"]: v for v in at_risk_variants}
+        healthy_by_tone = {v["tone"]: v for v in healthy_variants}
+
+        for tone in TONES:
+            expected_sentence = _AT_RISK_CHECKIN_SENTENCES[tone]
+            _assert_checkin_sentence_is_neutral(expected_sentence)
+            assert (
+                at_risk_by_tone[tone]["message"]
+                == f"{healthy_by_tone[tone]['message']}\n\n{expected_sentence}"
+            )
 
 
 # ---------------------------------------------------------------------
@@ -149,13 +174,24 @@ def test_growth_lever_each_touch_stage_is_distinct_per_tone(action):
 
 
 @pytest.mark.parametrize("action", GROWTH_LEVER_ACTIONS)
-def test_growth_lever_messages_identical_at_risk_or_not(action):
+def test_growth_lever_at_risk_appends_neutral_checkin_sentence(action):
     at_risk_row = make_growth_row(is_at_risk=True)
     healthy_row = make_growth_row(is_at_risk=False)
+
     for touch_count in (0, 1, 2):
         _, at_risk_variants = draft_growth_lever_stage(at_risk_row, action, touch_count)
         _, healthy_variants = draft_growth_lever_stage(healthy_row, action, touch_count)
-        assert at_risk_variants == healthy_variants
+
+        at_risk_by_tone = {v["tone"]: v for v in at_risk_variants}
+        healthy_by_tone = {v["tone"]: v for v in healthy_variants}
+
+        for tone in TONES:
+            expected_sentence = _AT_RISK_CHECKIN_SENTENCES[tone]
+            _assert_checkin_sentence_is_neutral(expected_sentence)
+            assert (
+                at_risk_by_tone[tone]["message"]
+                == f"{healthy_by_tone[tone]['message']}\n\n{expected_sentence}"
+            )
 
 
 def test_offer_tool_nudge_never_mentions_discount_or_promotion():
