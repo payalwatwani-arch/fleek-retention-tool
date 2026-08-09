@@ -39,9 +39,11 @@ python run.py path/to/portfolio.xlsx
 python -m streamlit run app.py
 ```
 
-The dashboard will ask you to upload the portfolio workbook (must contain
-`Accounts` and `new_accounts` sheets, same shape as the case study file) on
-first load.
+The dashboard will ask you to upload the portfolio workbook on first load.
+It accepts the original two-tab format (`Accounts` + `new_accounts`), but
+also works with a single sheet under any name, or a differently-named
+two-sheet layout — as long as the columns match the required schema. See
+`src/data_loader.py` for the exact matching logic.
 
 ## Architecture
 
@@ -194,3 +196,8 @@ into usage limits partway through the build — a real, practical
 constraint worth naming honestly rather than glossing over, since it's
 part of actually working with these tools day to day, not just a clean
 demo of them.
+
+## Logic diagrams
+
+For a visual walkthrough of the thinking process and the full
+segmentation decision tree: [Miro board](https://miro.com/app/board/uXjVHzwY1IE=/)
