@@ -1,7 +1,7 @@
 # Fleek Retention Engine
 
 A tool that runs Fleek's account-management portfolio automatically: cleans
-the raw data, segments every account by real behavior, decides the next
+the raw data, segments every account by real behaviour, decides the next
 useful action, drafts it, and tracks it — safely, every time it re-runs,
 without duplicating work or losing history.
 
